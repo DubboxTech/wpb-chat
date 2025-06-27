@@ -1,0 +1,515 @@
+<?php
+
+namespace App\Services\WhatsApp;
+
+use App\Models\WhatsAppAccount;
+use App\Models\WhatsAppContact;
+use App\Models\WhatsAppMessage;
+use App\Models\WhatsAppTemplate;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
+use Exception;
+use InvalidArgumentException;
+
+class WhatsAppBusinessService
+{
+    protected string $baseUrl = 'https://graph.facebook.com/v20.0';
+    protected ?WhatsAppAccount $account = null;
+
+    public function __construct(?WhatsAppAccount $account = null)
+    {
+        $this->account = $account ?: WhatsAppAccount::default()->first();
+    }
+
+    /**
+     * Set the WhatsApp account to use.
+     */
+    public function setAccount(WhatsAppAccount $account): self
+    {
+        $this->account = $account;
+        return $this;
+    }
+
+    /**
+     * Get media information, including the temporary download URL.
+     * Este é o método que busca a URL na Meta.
+     */
+    public function getMediaInfo(string $mediaId): ?array
+    {
+        if (!$this->account) {
+            Log::error('WhatsApp account not set for getMediaInfo.');
+            return null;
+        }
+
+        $url = "{$this->baseUrl}/{$mediaId}";
+
+        try {
+            $response = Http::withToken($this->account->access_token)->get($url);
+
+            if ($response->successful()) {
+                return $response->json();
+            }
+
+            Log::error('Failed to get media info from Meta API.', [
+                'media_id' => $mediaId,
+                'status' => $response->status(),
+                'response' => $response->body(),
+            ]);
+            return null;
+        } catch (\Exception $e) {
+            Log::error('Exception while getting media info.', [
+                'media_id' => $mediaId,
+                'error' => $e->getMessage(),
+            ]);
+            return null;
+        }
+    }
+
+    /**
+     * Send media message (image, video, document, audio).
+     */
+    public function sendMediaMessage(string $to, string $type, string $mediaUrl, ?string $caption = null): array
+    {
+        if (!$this->account) {
+            throw new Exception('WhatsApp account not configured');
+        }
+
+        $payload = [
+            'messaging_product' => 'whatsapp',
+            'to' => $this->formatPhoneNumber($to),
+            'type' => $type,
+            $type => [
+                'link' => $mediaUrl
+            ]
+        ];
+
+        if ($caption && in_array($type, ['image', 'video', 'document'])) {
+            $payload[$type]['caption'] = $caption;
+        }
+
+        return $this->sendMessage($payload);
+    }
+
+    /**
+     * Send interactive message (buttons, list).
+     */
+    public function sendInteractiveMessage(string $to, array $interactive): array
+    {
+        if (!$this->account) {
+            throw new Exception('WhatsApp account not configured');
+        }
+
+        $payload = [
+            'messaging_product' => 'whatsapp',
+            'to' => $this->formatPhoneNumber($to),
+            'type' => 'interactive',
+            'interactive' => $interactive
+        ];
+
+        return $this->sendMessage($payload);
+    }
+
+    /**
+     * Mark message as read.
+     */
+    public function markAsRead(string $messageId): array
+    {
+        if (!$this->account) {
+            throw new Exception('WhatsApp account not configured');
+        }
+
+        $url = "{$this->baseUrl}/{$this->account->phone_number_id}/messages";
+
+        $response = Http::withToken($this->account->access_token)
+            ->post($url, [
+                'messaging_product' => 'whatsapp',
+                'status' => 'read',
+                'message_id' => $messageId
+            ]);
+
+        return $this->handleResponse($response);
+    }
+
+    /**
+     * Get media URL.
+     */
+    public function getMediaUrl(string $mediaId): ?string
+    {
+        if (!$this->account) {
+            return null;
+        }
+
+        $url = "{$this->baseUrl}/{$mediaId}";
+
+        $response = Http::withToken($this->account->access_token)->get($url);
+
+        if ($response->successful()) {
+            $data = $response->json();
+            return $data['url'] ?? null;
+        }
+
+        return null;
+    }
+
+    /**
+     * Download media content.
+     */
+    public function downloadMedia(string $mediaUrl): ?string
+    {
+        if (!$this->account) {
+            return null;
+        }
+
+        $response = Http::withToken($this->account->access_token)->get($mediaUrl);
+
+        if ($response->successful()) {
+            return $response->body();
+        }
+
+        return null;
+    }
+
+    /**
+     * Get message templates.
+     */
+    /**
+     * Get message templates from Meta API.
+     */
+    public function getTemplates(): array
+    {
+        if (!$this->account) {
+            throw new Exception('WhatsApp account not configured');
+        }
+
+        $url = "{$this->baseUrl}/{$this->account->business_account_id}/message_templates";
+        
+        $response = Http::withToken($this->account->access_token)->get($url, [
+            'fields' => 'name,status,category,components',
+            'limit' => 100 // Aumente se tiver mais templates
+        ]);
+
+        $result = $this->handleResponse($response);
+
+        if ($result['success']) {
+            // Filtra para retornar apenas templates aprovados
+            $approvedTemplates = array_filter($result['data']['data'] ?? [], function($template) {
+                return $template['status'] === 'APPROVED';
+            });
+            $result['data'] = array_values($approvedTemplates);
+        }
+        
+        return $result;
+    }
+
+    /**
+     * Create message template.
+     */
+    public function createTemplate(array $templateData): array
+    {
+        if (!$this->account) {
+            throw new Exception('WhatsApp account not configured');
+        }
+
+        $url = "{$this->baseUrl}/{$this->account->business_account_id}/message_templates";
+
+        $response = Http::withToken($this->account->access_token)
+            ->post($url, $templateData);
+
+        return $this->handleResponse($response);
+    }
+
+    /**
+     * Delete message template.
+     */
+    public function deleteTemplate(string $templateName): array
+    {
+        if (!$this->account) {
+            throw new Exception('WhatsApp account not configured');
+        }
+
+        $url = "{$this->baseUrl}/{$this->account->business_account_id}/message_templates";
+
+        $response = Http::withToken($this->account->access_token)
+            ->delete($url, [
+                'name' => $templateName
+            ]);
+
+        return $this->handleResponse($response);
+    }
+
+    /**
+     * Validate template before sending.
+     */
+    public function validateTemplate(string $templateName, array $parameters = []): bool
+    {
+        $template = WhatsAppTemplate::where('whatsapp_account_id', $this->account->id)
+            ->where('name', $templateName)
+            ->where('status', 'APPROVED')
+            ->where('is_active', true)
+            ->first();
+
+        if (!$template) {
+            return false;
+        }
+
+        // Validate parameters count and types
+        $components = $template->components;
+        $requiredParams = $this->extractRequiredParameters($components);
+
+        return count($parameters) >= count($requiredParams);
+    }
+
+    /**
+     * Método central para enviar qualquer tipo de mensagem.
+     *
+     * @param string $to O número do destinatário.
+     * @param string $type O tipo de mensagem (text, image, audio, document, template, location, etc.).
+     * @param array $data Os dados específicos para o tipo de mensagem.
+     * @return array
+     * @throws Exception
+     */
+    public function sendMessage(string $to, string $type, array $data): array
+    {
+        if (!$this->account) {
+            throw new Exception('WhatsApp account not configured');
+        }
+
+        $payload = [
+            'messaging_product' => 'whatsapp',
+            'to' => $this->formatPhoneNumber($to),
+            'type' => $type,
+        ];
+        
+        $messageBody = $this->buildMessageBody($type, $data);
+        $payload[$type] = $messageBody;
+
+        return $this->sendMessagePayload($payload);
+    }
+
+    /**
+     * Constrói o corpo da mensagem com base no seu tipo.
+     */
+    private function buildMessageBody(string $type, array $data): array
+    {
+        return match ($type) {
+            'text' => [
+                'preview_url' => $data['preview_url'] ?? false,
+                'body' => $data['content'] ?? throw new InvalidArgumentException('Content for text message is required.'),
+            ],
+            'image', 'video', 'audio', 'document' => [
+                'link' => $data['media_url'] ?? throw new InvalidArgumentException('Media URL is required for media messages.'),
+                'caption' => $data['caption'] ?? null,
+                'filename' => ($type === 'document') ? ($data['filename'] ?? null) : null,
+            ],
+            'sticker' => [
+                'link' => $data['media_url'] ?? throw new InvalidArgumentException('Media URL is required for sticker messages.'),
+            ],
+            'location' => [
+                'latitude' => $data['latitude'] ?? throw new InvalidArgumentException('Latitude is required for location messages.'),
+                'longitude' => $data['longitude'] ?? throw new InvalidArgumentException('Longitude is required for location messages.'),
+                'name' => $data['name'] ?? null,
+                'address' => $data['address'] ?? null,
+            ],
+            'template' => [
+                'name' => $data['template_name'] ?? throw new InvalidArgumentException('Template name is required.'),
+                'language' => ['code' => $data['language_code'] ?? 'pt_BR'],
+                'components' => $this->buildTemplateComponents($data['parameters'] ?? []),
+            ],
+            'interactive' => $data['interactive'] ?? throw new InvalidArgumentException('Interactive object is required.'),
+            default => throw new InvalidArgumentException("Unsupported message type: {$type}"),
+        };
+    }
+    
+    /**
+     * Método "atalho" para enviar texto.
+     */
+    public function sendTextMessage(string $to, string $message, bool $previewUrl = false): array
+    {
+        return $this->sendMessage($to, 'text', [
+            'content' => $message,
+            'preview_url' => $previewUrl,
+        ]);
+    }
+    
+    /**
+     * Método "atalho" para enviar template.
+     */
+    public function sendTemplateMessage(string $to, string $templateName, array $parameters = [], string $language = 'pt_BR'): array
+    {
+        return $this->sendMessage($to, 'template', [
+            'template_name' => $templateName,
+            'language_code' => $language,
+            'parameters' => $parameters,
+        ]);
+    }
+
+    protected function sendMessagePayload(array $payload): array
+    {
+        $url = "{$this->baseUrl}/{$this->account->phone_number_id}/messages";
+
+        try {
+            $response = Http::withToken($this->account->access_token)
+                ->timeout(30)
+                ->post($url, $payload);
+
+            $result = $this->handleResponse($response);
+
+            // Log the message
+            if ($result['success']) {
+                Log::info('WhatsApp message sent successfully', [
+                    'account_id' => $this->account->id,
+                    'to' => $payload['to'],
+                    'type' => $payload['type'],
+                    'message_id' => $result['data']['messages'][0]['id'] ?? null
+                ]);
+            } else {
+                Log::error('WhatsApp message failed', [
+                    'account_id' => $this->account->id,
+                    'to' => $payload['to'],
+                    'error' => $result['message']
+                ]);
+            }
+
+            return $result;
+
+        } catch (Exception $e) {
+            Log::error('WhatsApp API error: ' . $e->getMessage(), [
+                'account_id' => $this->account?->id,
+                'payload' => $payload
+            ]);
+
+            return [
+                'success' => false,
+                'message' => 'Erro de conexão com WhatsApp API',
+                'error' => $e->getMessage()
+            ];
+        }
+    }
+
+    /**
+     * Handle API response.
+     */
+    protected function handleResponse($response): array
+    {
+        if ($response->successful()) {
+            return [
+                'success' => true,
+                'data' => $response->json()
+            ];
+        }
+
+        $error = $response->json();
+        $errorMessage = $error['error']['message'] ?? 'Erro desconhecido';
+
+        return [
+            'success' => false,
+            'message' => $errorMessage,
+            'error_code' => $error['error']['code'] ?? null,
+            'error_details' => $error
+        ];
+    }
+
+    /**
+     * Format phone number for WhatsApp API.
+     */
+    protected function formatPhoneNumber(string $phone): string
+    {
+        // Remove all non-numeric characters
+        $phone = preg_replace('/\D/', '', $phone);
+        
+        // Add country code if not present (assuming Brazil +55)
+        if (!str_starts_with($phone, '55')) {
+            $phone = '55' . $phone;
+        }
+        
+        return $phone;
+    }
+
+    /**
+     * Build template components from parameters.
+     */
+    protected function buildTemplateComponents(array $parameters): array
+    {
+        $components = [];
+
+        if (isset($parameters['header'])) {
+            $components[] = [
+                'type' => 'header',
+                'parameters' => $parameters['header']
+            ];
+        }
+
+        if (isset($parameters['body'])) {
+            $components[] = [
+                'type' => 'body',
+                'parameters' => $parameters['body']
+            ];
+        }
+
+        if (isset($parameters['footer'])) {
+            $components[] = [
+                'type' => 'footer',
+                'parameters' => $parameters['footer']
+            ];
+        }
+
+        return $components;
+    }
+
+    /**
+     * Extract required parameters from template components.
+     */
+    protected function extractRequiredParameters(array $components): array
+    {
+        $parameters = [];
+
+        foreach ($components as $component) {
+            if (isset($component['text'])) {
+                preg_match_all('/\{\{(\d+)\}\}/', $component['text'], $matches);
+                $parameters = array_merge($parameters, $matches[1]);
+            }
+        }
+
+        return array_unique($parameters);
+    }
+
+    /**
+     * Get user profile information, including profile picture URL.
+     * @param string $contactId The WhatsApp ID of the user.
+     * @return array|null
+     */
+    public function getContactProfile(string $contactId): ?array
+    {
+        if (!$this->account) {
+            Log::error('WhatsApp account not set for getContactProfile.');
+            return null;
+        }
+
+        // Endpoint para buscar o nome e a URL da foto do perfil
+        $url = "{$this->baseUrl}/{$contactId}?fields=name,profile_picture_url";
+
+        try {
+            $response = Http::withToken($this->account->access_token)->get($url);
+
+            if ($response->successful()) {
+                Log::info('Contact profile fetched successfully.', ['contact_id' => $contactId]);
+                return $response->json();
+            }
+
+            Log::error('Failed to get contact profile from Meta API.', [
+                'contact_id' => $contactId,
+                'status' => $response->status(),
+                'response' => $response->body(),
+            ]);
+            return null;
+
+        } catch (\Exception $e) {
+            Log::error('Exception while getting contact profile.', [
+                'contact_id' => $contactId,
+                'error' => $e->getMessage(),
+            ]);
+            return null;
+        }
+    }
+}
+

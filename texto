@@ -1,0 +1,76 @@
+texto
+
+curl -X POST https://whatsapp-business-system.test/api/whatsapp/webhook \
+-H "Content-Type: application/json" \
+-d '{"object":"whatsapp_business_account","entry":[{"id":"294408263765996","changes":[{"value":{"messaging_product":"whatsapp","metadata":{"display_phone_number":"15556238061","phone_number_id":"614833181723737"},"contacts":[{"profile":{"name":"Gustavo Silva"},"wa_id":"556191235477"}],"messages":[{"context":{"from":"15556238061","id":"wamid.HBgMNTU2MTkxMjM1NDc3FQIAERgSMkE2NEM0MzQ4NDBDMEMyODYzAaaA=="},"from":"556191235477","id":"wamid.HBgMNTU2MTkxMjM1NDc3FQIAEhgUM0EyNzBBMkVFMEU2M0UwREQwNDIAaa","timestamp":"1719502656","type":"text","text":{"body":"okokokok"}}]},"field":"messages"}]}]}'
+
+
+curl -X POST https://whatsapp-business-system.test/api/whatsapp/webhook \
+-H "Content-Type: application/json" \
+-d '{"object":"whatsapp_business_account","entry":[{"id":"294408263765996","changes":[{"value":{"messaging_product":"whatsapp","metadata":{"display_phone_number":"15556238061","phone_number_id":"614833181723737"},"contacts":[{"profile":{"name":"José Carlos"},"wa_id":"556191235476"}],"messages":[{"context":{"from":"15556238061","id":"wamid.HBgMNTU2MTkxMjM1NDc3FQIAERgSMkE2NEM0MzQ4NDBDMEMyODYzAaaA=="},"from":"556191235477","id":"wamid.HBgMNTU2MTkxMjM1NDc3FQIAEhgUM0EyNzBBMkVFMEU2M0UwREQwNDIAaa_pppj","timestamp":"1719502656","type":"text","text":{"body":"Ola gostaria de dialogar"}}]},"field":"messages"}]}]}'
+
+
+
+imagem
+
+curl -X POST https://whatsapp-business-system.test/api/whatsapp/webhook \
+-H "Content-Type: application/json" \
+-d '{"object":"whatsapp_business_account","entry":[{"id":"1292640669109590","changes":[{"value":{"messaging_product":"whatsapp","metadata":{"display_phone_number":"556193183072","phone_number_id":"614833181723737"},"contacts":[{"profile":{"name":"Gustavo Silva"},"wa_id":"556191235477"}],"messages":[{"from":"556191235477","id":"wamid.HBgMNTU2MTkxMjM1NDc3FQIAEhgUM0E4MDlCMzk2NDZFNDhGNUMzNkEA","timestamp":"1749844202","type":"image","image":{"mime_type":"image/jpeg","sha256":"guCLvT2Gcr0LYB0Bsq6I+Ny8OWHCaz4Mz6E/1kMRthg=","id":"1358350738555007"}}]},"field":"messages"}]}]}'
+
+
+
+
+localizacao
+
+curl -X POST https://whatsapp-business-system.test/api/whatsapp/webhook \
+-H "Content-Type: application/json" \
+-d '{"object":"whatsapp_business_account","entry":[{"id":"1292640669109590","changes":[{"value":{"messaging_product":"whatsapp","metadata":{"display_phone_number":"556193183072","phone_number_id":"614833181723737"},"contacts":[{"profile":{"name":"Gustavo Silva"},"wa_id":"556191235477"}],"messages":[{"from":"556191235477","id":"wamid.HBgMNTU2MTkxMjM1NDc3FQIAEhgUM0EzNTA5QjcwNzc1QzI3Qzc1RTMA","timestamp":"1749844308","location":{"latitude":-15.747517585754,"longitude":-47.751556396484},"type":"location"}]},"field":"messages"}]}]}'
+
+
+video
+
+curl -X POST https://whatsapp-business-system.test/api/whatsapp/webhook \
+-H "Content-Type: application/json" \
+-d '{"object":"whatsapp_business_account","entry":[{"id":"1292640669109590","changes":[{"value":{"messaging_product":"whatsapp","metadata":{"display_phone_number":"556193183072","phone_number_id":"614833181723737"},"contacts":[{"profile":{"name":"Gustavo Silva"},"wa_id":"556191235477"}],"messages":[{"from":"556191235477","id":"wamid.HBgMNTU2MTkxMjM1NDc3FQIAEhgUM0FDMzU3ODZEM0NGMzc0MDczMzYA","timestamp":"1749844479","type":"video","video":{"mime_type":"video/mp4","sha256":"HEam+dTV+pgMKbZrEp4AbmQHOrNF5Cfc2Tfev5Pi7rQ=","id":"606836102436788"}}]},"field":"messages"}]}]}'
+
+audio
+
+curl -X POST https://whatsapp-business-system.test/api/whatsapp/webhook \
+-H "Content-Type: application/json" \
+-d '{"object":"whatsapp_business_account","entry":[{"id":"1292640669109590","changes":[{"value":{"messaging_product":"whatsapp","metadata":{"display_phone_number":"556193183072","phone_number_id":"614833181723737"},"contacts":[{"profile":{"name":"Gustavo Silva"},"wa_id":"556191235477"}],"messages":[{"from":"556191235477","id":"wamid.HBgMNTU2MTkxMjM1NDc3FQIAEhgUM0E3M0FDQ0NBN0JENzU5NEJBMTIA","timestamp":"1749844585","type":"audio","audio":{"mime_type":"audio/ogg; codecs=opus","sha256":"GWX5wKWvdjuciUPRSM0UMetreHy00UB8XCSAnpvI4rM=","id":"568210676342275","voice":true}}]},"field":"messages"}]}]}'
+
+
+imagem legenda
+
+curl -X POST https://whatsapp-business-system.test/api/whatsapp/webhook \
+-H "Content-Type: application/json" \
+-d '{"object":"whatsapp_business_account","entry":[{"id":"1292640669109590","changes":[{"value":{"messaging_product":"whatsapp","metadata":{"display_phone_number":"556193183072","phone_number_id":"614833181723737"},"contacts":[{"profile":{"name":"Gustavo Silva"},"wa_id":"556191235477"}],"messages":[{"from":"556191235477","id":"wamid.HBgMNTU2MTkxMjM1NDc3FQIAEhgUM0FDQTkwRjAwOTk3MEIxRjIwNjAA","timestamp":"1749844794","type":"image","image":{"caption":"Legenda certa","mime_type":"image/jpeg","sha256":"vhRYyb/lTOh7xm5LRaziOjAkcA5fz6Yf9Zx1MBpfgo8=","id":"931196612420954"}}]},"field":"messages"}]}]}'
+
+
+arquivo
+
+curl -X POST https://whatsapp-business-system.test/api/whatsapp/webhook \
+-H "Content-Type: application/json" \
+-d '{"object":"whatsapp_business_account","entry":[{"id":"1292640669109590","changes":[{"value":{"messaging_product":"whatsapp","metadata":{"display_phone_number":"556193183072","phone_number_id":"614833181723737"},"contacts":[{"profile":{"name":"Gustavo Silva"},"wa_id":"556191235477"}],"messages":[{"from":"556191235477","id":"wamid.HBgMNTU2MTkxMjM1NDc3FQIAEhgUM0FDQ0EyNUFCNzBGNEE5NkRGQUUA","timestamp":"1749844974","type":"document","document":{"filename":"4782835_67184.75835.033704.68339099.pdf","mime_type":"application/pdf","sha256":"dEvCp3hIbuyur2Up2Vnn8xjja2CswBJtdGqk6SQTJkQ=","id":"1774529920166618"}}]},"field":"messages"}]}]}'
+
+
+sticker
+
+curl -X POST https://whatsapp-business-system.test/api/whatsapp/webhook \
+-H "Content-Type: application/json" \
+-d '{"object":"whatsapp_business_account","entry":[{"id":"1292640669109590","changes":[{"value":{"messaging_product":"whatsapp","metadata":{"display_phone_number":"556193183072","phone_number_id":"614833181723737"},"contacts":[{"profile":{"name":"Gustavo Silva"},"wa_id":"556191235477"}],"messages":[{"from":"556191235477","id":"wamid.HBgMNTU2MTkxMjM1NDc3FQIAEhgUM0ExNEZGOTdCNzA2M0Y1MEQ4NzYA","timestamp":"1749845094","type":"sticker","sticker":{"mime_type":"image/webp","sha256":"9n+48mXb6t4kFw2NORbOkPBgLqIeAris8twR8KM6ujg=","id":"1255929619541299","animated":false}}]},"field":"messages"}]}]}'
+
+
+resposta
+
+curl -X POST https://whatsapp-business-system.test/api/whatsapp/webhook \
+-H "Content-Type: application/json" \
+-d '{"object":"whatsapp_business_account","entry":[{"id":"1292640669109590","changes":[{"value":{"messaging_product":"whatsapp","metadata":{"display_phone_number":"556193183072","phone_number_id":"614833181723737"},"contacts":[{"profile":{"name":"Gustavo Silva"},"wa_id":"556191235477"}],"messages":[{"context":{"from":"556193183072","id":"wamid.HBgMNTU2MTkxMjM1NDc3FQIAERgSNkQxMEMzRkFDQUZFMjc4RTM1AA=="},"from":"556191235477","id":"wamid.HBgMNTU2MTkxMjM1NDc3FQIAEhgUM0E3RjczQzk0RTU2RDkwNTA1M0MA","timestamp":"1749848223","text":{"body":"Erro certo"},"type":"text"}]},"field":"messages"}]}]}'
+
+
+msg update delivered
+
+curl -X POST https://whatsapp-business-system.test/api/whatsapp/webhook \
+-H "Content-Type: application/json" \
+-d '{"object":"whatsapp_business_account","entry":[{"id":"1292640669109590","changes":[{"value":{"messaging_product":"whatsapp","metadata":{"display_phone_number":"556193183072","phone_number_id":"614833181723737"},"statuses":[{"id":"wamid.HBgMNTU2MTkxMjM1NDc3FQIAERgSNkQxMEMzRkFDQUZFMjc4RTM1AA==","status":"read","timestamp":"1749847504","recipient_id":"556191235477","conversation":{"id":"f7476fc9d2680112de27006adf7ecb8c","origin":{"type":"service"}},"pricing":{"billable":true,"pricing_model":"CBP","category":"service"}}]},"field":"messages"}]}]}'
+
