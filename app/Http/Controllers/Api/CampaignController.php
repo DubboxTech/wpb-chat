@@ -11,6 +11,7 @@ use App\Services\WhatsApp\WhatsAppBusinessService;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Facades\Storage; 
 
 class CampaignController extends Controller
 {
@@ -66,48 +67,50 @@ class CampaignController extends Controller
     {
         $validator = Validator::make($request->all(), [
             'name' => 'required|string|max:255',
-            'description' => 'nullable|string',
             'type' => 'required|in:immediate,scheduled,recurring',
             'whatsapp_account_id' => 'required|exists:whatsapp_accounts,id',
             'template_name' => 'required|string',
             'template_parameters' => 'nullable|array',
             'segment_filters' => 'nullable|array',
             'scheduled_at' => 'nullable|date|after:now',
-            'rate_limit_per_minute' => 'nullable|integer|min:1|max:100',
+            'header_media' => 'nullable|file|mimes:jpg,jpeg,png,mp4,pdf|max:16384', // Validação para mídia
         ]);
 
         if ($validator->fails()) {
             return response()->json([
-                'success' => false,
-                'message' => 'Dados inválidos.',
-                'errors' => $validator->errors(),
+                'success' => false, 'message' => 'Dados inválidos.', 'errors' => $validator->errors(),
             ], 422);
         }
 
         try {
-            $campaignData = $request->all();
+            $campaignData = $request->except('header_media');
             $campaignData['user_id'] = auth()->id();
             $campaignData['status'] = $request->filled('scheduled_at') ? 'scheduled' : 'draft';
 
-            $campaign = $this->campaignService->createCampaign($campaignData);
+            // **NOVO**: Lógica para upload de mídia
+            if ($request->hasFile('header_media')) {
+                $path = $request->file('header_media')->store('campaign_headers', 's3');
+                // Adiciona o tipo e a URL/caminho nos parâmetros do template
+                $campaignData['template_parameters']['header'] = [
+                    'type' => 'media', // Indica que é uma mídia
+                    'url' => Storage::disk('s3')->url($path),
+                ];
+            }
 
-            // 2. Se a campanha NÃO foi agendada (ou seja, é imediata),
-            // pedimos ao serviço para iniciá-la.
+            $campaign = $this->campaignService->createCampaign($campaignData);
+            
             if (!$request->filled('scheduled_at')) {
                 $this->campaignService->startCampaign($campaign);
             }
 
             return response()->json([
-                'success' => true,
-                'message' => 'Campanha criada com sucesso.',
-                'campaign' => $campaign->load(['user', 'whatsappAccount']),
+                'success' => true, 'message' => 'Campanha criada com sucesso.', 'campaign' => $campaign->load(['user', 'whatsappAccount']),
             ], 201);
 
         } catch (\Exception $e) {
             \Log::error('Erro ao criar campanha: ' . $e->getMessage());
             return response()->json([
-                'success' => false,
-                'message' => 'Erro ao criar campanha: ' . $e->getMessage(),
+                'success' => false, 'message' => 'Erro ao criar campanha: ' . $e->getMessage(),
             ], 500);
         }
     }

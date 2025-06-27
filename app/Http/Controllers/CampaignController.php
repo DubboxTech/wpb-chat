@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use App\Models\Campaign;
+use App\Models\WhatsAppContact;
 
 class CampaignController extends Controller
 {
@@ -24,9 +25,19 @@ class CampaignController extends Controller
 
         $campaigns = $query->paginate(10)->withQueryString();
 
+        $tags = WhatsAppContact::whereNotNull('tags')
+                                ->select('tags')
+                                ->get()
+                                ->pluck('tags')
+                                ->flatten()
+                                ->unique()
+                                ->values()
+                                ->all();
+
         return Inertia::render('Campaigns', [
             'campaigns' => $campaigns,
             'filters' => $request->only(['search', 'status']),
+            'segments' => $tags,
         ]);
     }
 }

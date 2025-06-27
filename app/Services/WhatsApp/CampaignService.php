@@ -276,31 +276,52 @@ class CampaignService
      */
     protected function personalizeParameters(array $templateParams, WhatsAppContact $contact, array $personalizedParams = []): array
     {
-        $parameters = $templateParams;
+        $finalParams = ['body' => [], 'header' => []];
 
-        // Replace placeholders with contact data
-        $replacements = [
-            '{{name}}' => $contact->display_name,
-            '{{phone}}' => $contact->phone_number,
-            '{{profile_name}}' => $contact->profile_name,
-        ];
-
-        // Add custom fields
-        foreach ($contact->custom_fields ?? [] as $key => $value) {
-            $replacements["{{custom.{$key}}}"] = $value;
+        // Processa parâmetros do header (mídia)
+        if (isset($templateParams['header']) && $templateParams['header']['type'] === 'media') {
+            $format = strtolower($this->getMediaFormatFromUrl($templateParams['header']['url']));
+            $finalParams['header'][] = [
+                'type' => $format,
+                $format => ['link' => $templateParams['header']['url']]
+            ];
         }
 
-        // Add personalized parameters
-        foreach ($personalizedParams as $key => $value) {
-            $replacements["{{personalized.{$key}}}"] = $value;
+        // Processa parâmetros do corpo (variáveis dinâmicas)
+        if(isset($templateParams['body'])) {
+            foreach ($templateParams['body'] as $param) {
+                $paramValue = '';
+                if ($param['type'] === 'field') {
+                    // Mapeamento por campo do contato
+                    if (str_starts_with($param['value'], 'custom.')) {
+                        $customKey = substr($param['value'], 7);
+                        $paramValue = $contact->custom_fields[$customKey] ?? '';
+                    } else {
+                        $paramValue = $contact->{$param['value']} ?? '';
+                    }
+                } else {
+                    // Valor manual
+                    $paramValue = $param['value'];
+                }
+
+                $finalParams['body'][] = ['type' => 'text', 'text' => $paramValue];
+            }
         }
-
-        // Apply replacements
-        $parameters = $this->replaceParameterPlaceholders($parameters, $replacements);
-
-        return $parameters;
+        
+        return $finalParams;
     }
 
+    // NOVO: Método auxiliar para determinar o tipo de mídia pela extensão
+    private function getMediaFormatFromUrl(string $url): string
+    {
+        $extension = pathinfo($url, PATHINFO_EXTENSION);
+        return match (strtolower($extension)) {
+            'jpg', 'jpeg', 'png' => 'image',
+            'mp4' => 'video',
+            'pdf' => 'document',
+            default => 'document',
+        };
+    }
     /**
      * Replace placeholders in parameters.
      */

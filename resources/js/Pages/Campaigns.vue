@@ -11,8 +11,8 @@
     </template>
 
     <div class="mb-6 flex flex-wrap gap-4">
-      <input type="text" v-model="filterForm.search" placeholder="Buscar campanhas..." @input="searchCampaigns" class="form-input flex-grow">
-      <select v-model="filterForm.status" @change="searchCampaigns" class="form-input w-48">
+      <input type="text" v-model="filterForm.search" placeholder="Buscar campanhas..." class="form-input flex-grow">
+      <select v-model="filterForm.status" class="form-input w-48">
         <option value="">Todos os status</option>
         <option value="draft">Rascunho</option>
         <option value="scheduled">Agendada</option>
@@ -112,11 +112,38 @@
             </div>
           </div>
 
-          <div v-if="templateVariables.length > 0" class="space-y-3 p-4 border rounded-md bg-gray-50">
-            <h4 class="font-medium text-gray-800">Variáveis do Template</h4>
-            <div v-for="variable in templateVariables" :key="variable">
-              <label class="form-label">Variável <code class="text-sm bg-gray-200 px-1 py-0.5 rounded">{{ variable }}</code></label>
-              <input v-model="form.template_parameters[variable]" type="text" class="form-input" :placeholder="`Conteúdo para a variável ${variable}`"/>
+          <div v-if="selectedTemplateHasMedia" class="space-y-3 p-4 border rounded-md bg-yellow-50">
+            <h4 class="font-medium text-gray-800">Mídia do Cabeçalho ({{ selectedTemplateHeaderFormat }})</h4>
+            <div v-if="existing_header_media_url">
+                <img v-if="selectedTemplateHeaderFormat === 'IMAGE'" :src="existing_header_media_url" class="max-w-xs max-h-48 rounded shadow mb-2" alt="Preview da Mídia">
+                <video v-if="selectedTemplateHeaderFormat === 'VIDEO'" :src="existing_header_media_url" controls class="max-w-xs max-h-48 rounded shadow mb-2"></video>
+                <a v-if="selectedTemplateHeaderFormat === 'DOCUMENT'" :href="existing_header_media_url" target="_blank" class="text-blue-600 hover:underline">Ver Documento</a>
+                <button @click="existing_header_media_url = null" type="button" class="mt-2 text-sm font-medium text-red-600 hover:text-red-700">Trocar Mídia</button>
+            </div>
+            <div v-else>
+                <p class="text-sm text-yellow-800">Este template requer o envio de uma mídia no cabeçalho.</p>
+                <input type="file" @change="form.header_media = $event.target.files[0]" class="form-input" :accept="mediaAcceptTypes" />
+                <div v-if="form.errors.header_media" class="text-red-500 text-xs mt-1">{{ form.errors.header_media }}</div>
+            </div>
+          </div>
+
+          <div v-if="form.template_parameters.body.length > 0" class="space-y-3 p-4 border rounded-md bg-gray-50">
+            <h4 class="font-medium text-gray-800">Variáveis do Corpo da Mensagem</h4>
+            <div v-for="variable in form.template_parameters.body" :key="variable.key" class="grid grid-cols-1 md:grid-cols-3 gap-2 items-center">
+              <label class="form-label md:col-span-1">Variável <code class="text-sm bg-gray-200 px-1 py-0.5 rounded" v-text="`{{${variable.key}}}`"></code></label>
+              <div class="md:col-span-2 flex items-center space-x-2">
+                  <select v-model="variable.type" class="form-input text-sm w-1/3">
+                      <option value="manual">Manual</option>
+                      <option value="field">Campo do Contato</option>
+                  </select>
+                  <input v-if="variable.type === 'manual'" v-model="variable.value" type="text" class="form-input text-sm flex-grow" placeholder="Digite o valor fixo"/>
+                  <select v-else v-model="variable.value" class="form-input text-sm flex-grow">
+                      <option value="" disabled>Selecione um campo</option>
+                      <option value="name">Nome</option>
+                      <option value="phone_number">Telefone</option>
+                      <option value="custom.cep">CEP (Personalizado)</option>
+                  </select>
+              </div>
             </div>
           </div>
           
@@ -124,7 +151,7 @@
               <h4 class="font-medium text-gray-800">Segmentação de Contatos</h4>
               <p class="text-sm text-gray-500">A campanha será enviada para contatos que satisfaçam TODAS as regras abaixo.</p>
               <div v-for="(filter, index) in form.segment_filters" :key="index" class="flex items-center space-x-2 bg-gray-50 p-2 rounded">
-                <select v-model="filter.field" class="form-input text-sm">
+                <select v-model="filter.field" @change="filter.value = ''" class="form-input text-sm">
                   <option value="tags">Tag</option>
                   <option value="last_seen_at">Visto por último</option>
                 </select>
@@ -133,8 +160,14 @@
                   <option v-if="filter.field === 'last_seen_at'" value="after">Depois de</option>
                   <option v-if="filter.field === 'last_seen_at'" value="before">Antes de</option>
                 </select>
-                <input v-if="filter.field !== 'last_seen_at'" v-model="filter.value" type="text" class="form-input text-sm flex-grow">
-                <input v-if="filter.field === 'last_seen_at'" v-model="filter.value" type="date" class="form-input text-sm flex-grow">
+                <select v-if="filter.field === 'tags'" v-model="filter.value" class="form-input text-sm flex-grow">
+                    <option value="" disabled>Selecione uma tag</option>
+                    <option v-for="segment in segments" :key="segment" :value="segment">
+                        {{ segment }}
+                    </option>
+                </select>
+                <input v-else-if="filter.field === 'last_seen_at'" v-model="filter.value" type="date" class="form-input text-sm flex-grow">
+                <input v-else v-model="filter.value" type="text" class="form-input text-sm flex-grow">
                 <button type="button" @click="removeFilter(index)" class="text-red-500 hover:text-red-700 p-2">
                   <XMarkIcon class="h-5 w-5" />
                 </button>
@@ -143,9 +176,9 @@
           </div>
 
           <div class="flex justify-end space-x-3 pt-4">
-            <button type="button" @click="showModal = false" class="bg-gray-200 hover:bg-gray-300 text-gray-800 px-4 py-2 rounded-md">Cancelar</button>
-            <button type="submit" :disabled="isSaving" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-md disabled:bg-gray-400">
-                {{ isSaving ? 'Salvando...' : 'Salvar Campanha' }}
+            <button type="button" @click="closeModal" class="bg-gray-200 hover:bg-gray-300 text-gray-800 px-4 py-2 rounded-md">Cancelar</button>
+            <button type="submit" :disabled="form.processing" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-md disabled:bg-gray-400">
+                {{ form.processing ? 'Salvando...' : 'Salvar Campanha' }}
             </button>
           </div>
         </form>
@@ -165,13 +198,14 @@ import axios from 'axios';
 const props = defineProps({
   campaigns: Object,
   filters: Object,
+  segments: Array, 
+  availableAccounts: Array,
 });
 
 const showModal = ref(false);
-const availableAccounts = ref([]);
 const availableTemplates = ref([]);
 const templatesLoading = ref(false);
-const isSaving = ref(false);
+const existing_header_media_url = ref(null);
 
 const filterForm = ref({
     search: props.filters.search || '',
@@ -184,108 +218,87 @@ const form = useForm({
     description: '',
     whatsapp_account_id: null,
     template_name: null,
-    template_parameters: {},
+    template_parameters: { body: [] },
     segment_filters: [],
     type: 'immediate',
     scheduled_at: null,
+    header_media: null,
+    _method: 'POST', 
 });
 
-watch(() => form.type, (newType) => {
-    if (newType === 'immediate') {
-        form.scheduled_at = null;
-    }
-});
+const saveCampaign = () => {
+    const url = form.id ? route('campaigns.update', form.id) : route('campaigns.store');
+    form._method = form.id ? 'PUT' : 'POST';
 
-watch(filterForm, debounce(() => {
-    router.get(route('campaigns.index'), filterForm.value, { 
-        preserveState: true, 
-        replace: true 
+    form.post(url, {
+        forceFormData: true, 
+        onSuccess: () => closeModal(),
+        onError: (errors) => {
+             console.error("Erros de validação:", errors);
+             alert("Houve um erro. Verifique os campos do formulário.");
+        },
     });
-}, 300), { deep: true });
+};
 
 const openModal = async (campaign = null) => {
     form.reset();
     form.clearErrors();
-    if (campaign) {
+    existing_header_media_url.value = null;
+
+    if (campaign) { // MODO EDIÇÃO
         form.id = campaign.id;
         form.name = campaign.name;
-        form.description = campaign.description;
+        form.description = campaign.description || '';
         form.whatsapp_account_id = campaign.whatsapp_account_id;
         form.template_name = campaign.template_name;
-        form.template_parameters = campaign.template_parameters || {};
         form.segment_filters = campaign.segment_filters || [];
         form.type = campaign.scheduled_at ? 'scheduled' : 'immediate';
         form.scheduled_at = campaign.scheduled_at ? campaign.scheduled_at.substring(0, 16) : null;
+        existing_header_media_url.value = campaign.template_parameters?.header_url || null;
+        
+        await fetchTemplates(); 
+        
+        if (selectedTemplate.value) {
+            const savedBodyParams = campaign.template_parameters?.body || [];
+            form.template_parameters.body = templateBodyVariables.value.map(tplVar => {
+                const savedParam = savedBodyParams.find(p => p.key === tplVar.key);
+                return savedParam ? { ...savedParam } : { ...tplVar };
+            });
+        }
     }
-    await fetchAccounts();
-    if (form.whatsapp_account_id) await fetchTemplates();
     showModal.value = true;
 };
 
-const fetchAccounts = async () => {
-    try {
-        const response = await axios.get(route('api.whatsapp-accounts.index'));
-        availableAccounts.value = response.data.accounts;
-    } catch (error) {
-        console.error("Erro ao buscar contas:", error);
-    }
+const closeModal = () => {
+    showModal.value = false;
 };
 
 const fetchTemplates = async () => {
     if (!form.whatsapp_account_id) return;
     templatesLoading.value = true;
-    availableTemplates.value = [];
-    form.template_name = null;
-    form.template_parameters = {};
     try {
         const response = await axios.get(route('api.campaigns.templates', { whatsapp_account_id: form.whatsapp_account_id }));
-        if (response.data.success) {
-            availableTemplates.value = response.data.data;
-        } else {
-            throw new Error(response.data.message);
-        }
+        availableTemplates.value = response.data.data;
     } catch (error) {
         console.error("Erro ao buscar templates:", error);
-        alert('Não foi possível carregar os templates.');
     } finally {
         templatesLoading.value = false;
     }
 };
 
 const onTemplateSelect = () => {
-    form.template_parameters = {};
-};
-
-const saveCampaign = async () => {
-    isSaving.value = true;
-    const url = form.id ? route('api.campaigns.update', form.id) : route('api.campaigns.store');
-    const method = form.id ? 'put' : 'post';
-    try {
-        await axios[method](form.data());
-        showModal.value = false;
-        router.reload({ only: ['campaigns'] });
-    } catch (error) {
-        if (error.response && error.response.status === 422) {
-            form.setError(error.response.data.errors);
-            alert('Por favor, verifique os erros no formulário.');
-        } else {
-            console.error("Erro ao salvar campanha:", error.response?.data);
-            alert(`Ocorreu um erro: ${error.response?.data?.message || 'Verifique os dados.'}`);
-        }
-    } finally {
-        isSaving.value = false;
+    form.header_media = null; 
+    existing_header_media_url.value = null;
+    if (selectedTemplate.value) {
+        form.template_parameters.body = templateBodyVariables.value;
+    } else {
+        form.template_parameters.body = [];
     }
 };
 
-const performAction = async (action, campaign) => {
+const performAction = (action, campaign) => {
     if(action === 'delete' && !confirm('Tem certeza que deseja excluir esta campanha?')) return;
-    try {
-        await axios.post(route(`api.campaigns.${action}`, campaign.id));
-        router.reload({ only: ['campaigns'], preserveScroll: true });
-    } catch (error) {
-        console.error(`Erro ao executar a ação '${action}':`, error.response?.data);
-        alert(`Não foi possível executar a ação: ${error.response?.data?.message || 'Erro desconhecido'}`);
-    }
+    router.post(route(`api.campaigns.${action}`, campaign.id), {}, { preserveScroll: true });
 };
 
 const addFilter = () => {
@@ -296,36 +309,47 @@ const removeFilter = (index) => {
     form.segment_filters.splice(index, 1);
 };
 
-const selectedTemplate = computed(() => {
-    return availableTemplates.value.find(t => t.name === form.template_name);
-});
-
-const templateVariables = computed(() => {
-    if (!selectedTemplate.value) return [];
-    const variables = new Set();
-    selectedTemplate.value.components?.forEach(component => {
-        if (component.text) {
-            const matches = component.text.match(/\{\{(\d+)\}\}/g);
-            if (matches) {
-                matches.forEach(match => variables.add(match.replace(/\{|\}/g, '')));
-            }
-        }
-    });
-    return Array.from(variables).sort((a, b) => a - b);
-});
+const getStatusClass = (status) => ({
+    'draft': 'bg-gray-100 text-gray-800', 'scheduled': 'bg-blue-100 text-blue-800',
+    'running': 'bg-green-100 text-green-800', 'paused': 'bg-yellow-100 text-yellow-800',
+    'completed': 'bg-purple-100 text-purple-800', 'cancelled': 'bg-red-100 text-red-800',
+}[status] || 'bg-gray-100 text-gray-800');
 
 const getProgress = (campaign) => {
-    if (!campaign.total_contacts) return 0;
-    const processed = campaign.sent_count + campaign.failed_count;
+    if (!campaign.total_contacts || campaign.total_contacts === 0) return 0;
+    const processed = (campaign.sent_count || 0) + (campaign.failed_count || 0);
     return (processed / campaign.total_contacts) * 100;
 };
 
-const getStatusClass = (status) => ({
-    'draft': 'bg-gray-100 text-gray-800',
-    'scheduled': 'bg-blue-100 text-blue-800',
-    'running': 'bg-green-100 text-green-800',
-    'paused': 'bg-yellow-100 text-yellow-800',
-    'completed': 'bg-purple-100 text-purple-800',
-    'cancelled': 'bg-red-100 text-red-800',
-}[status] || 'bg-gray-100 text-gray-800');
+const selectedTemplate = computed(() => {
+    if (!form.template_name || !availableTemplates.value.length) return null;
+    return availableTemplates.value.find(t => t.name === form.template_name);
+});
+
+const selectedTemplateHeader = computed(() => selectedTemplate.value?.components.find(c => c.type === 'HEADER'));
+const selectedTemplateHasMedia = computed(() => {
+    const header = selectedTemplateHeader.value;
+    return header && ['IMAGE', 'VIDEO', 'DOCUMENT'].includes(header.format);
+});
+const selectedTemplateHeaderFormat = computed(() => selectedTemplateHeader.value?.format || '');
+
+const mediaAcceptTypes = computed(() => {
+    const format = selectedTemplateHeaderFormat.value;
+    if (format === 'IMAGE') return 'image/jpeg,image/png';
+    if (format === 'VIDEO') return 'video/mp4';
+    if (format === 'DOCUMENT') return 'application/pdf';
+    return '';
+});
+
+const templateBodyVariables = computed(() => {
+    if (!selectedTemplate.value) return [];
+    const bodyComponent = selectedTemplate.value.components.find(c => c.type === 'BODY');
+    if (!bodyComponent || !bodyComponent.text) return [];
+
+    const matches = bodyComponent.text.match(/\{\{(\d+)\}\}/g) || [];
+    return matches.map(match => {
+        const key = match.replace(/\{|\}/g, '');
+        return { key, type: 'manual', value: '' };
+    });
+});
 </script>
