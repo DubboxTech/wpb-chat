@@ -99,6 +99,8 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/{campaign}/resume', [CampaignController::class, 'resume'])->middleware('permission:campaigns.send')->name('api.campaigns.resume');
         Route::post('/{campaign}/cancel', [CampaignController::class, 'cancel'])->middleware('permission:campaigns.send')->name('api.campaigns.cancel');
         Route::get('/{campaign}/analytics', [CampaignController::class, 'analytics'])->name('api.campaigns.analytics');
+
+        Route::get('/{campaign}/contacts', [CampaignController::class, 'getCampaignContacts'])->name('api.campaigns.contacts');
     });
 
     Route::get('/whatsapp-accounts', [App\Http\Controllers\Api\CampaignController::class, 'accounts'])->name('api.whatsapp-accounts.index');

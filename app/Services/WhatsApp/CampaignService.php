@@ -7,6 +7,8 @@ use App\Models\CampaignContact;
 use App\Models\CampaignMessage;
 use App\Models\WhatsAppContact;
 use App\Models\ContactSegment;
+use App\Models\WhatsAppConversation;
+use App\Models\WhatsAppMessage; 
 use App\Jobs\SendCampaignMessage;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -142,8 +144,8 @@ class CampaignService
      */
     public function startCampaign(Campaign $campaign): void
     {
-        if (!$campaign->isReadyToRun() && $campaign->status !== 'draft') {
-            throw new Exception('Campaign is not ready to run');
+        if (!in_array($campaign->status, ['draft', 'scheduled'])) {
+            throw new Exception("Campaign cannot be started because its status is '{$campaign->status}'.");
         }
 
         $campaign->start();
@@ -191,121 +193,183 @@ class CampaignService
             $contact = $campaignContact->contact;
             $this->whatsappService->setAccount($campaign->whatsappAccount);
 
-            // Personalize template parameters
-            $parameters = $this->personalizeParameters(
-                $campaign->template_parameters ?? [],
-                $contact,
-                $campaignContact->personalized_parameters ?? []
-            );
+            // ---> INÍCIO DA CORREÇÃO <---
+            // Passo 1: Buscar os detalhes do template para obter o idioma correto.
+            $templateData = $this->whatsappService->getTemplateByName($campaign->template_name);
 
-            // Send template message
+            if (!$templateData) {
+                throw new Exception("Template '{$campaign->template_name}' not found on Meta Business account.");
+            }
+            
+            // Extrai o código do idioma do template encontrado.
+            $languageCode = $templateData['language'];
+            // ---> FIM DA CORREÇÃO <---
+
+            $personalizedParams = $this->personalizeParameters($campaign->template_parameters, $contact);
+
+            // Passo 2: Enviar a mensagem usando o idioma dinâmico.
+            // A assinatura de sendTemplateMessage deve ser (to, template_name, language_code, params)
             $result = $this->whatsappService->sendTemplateMessage(
                 $contact->phone_number,
                 $campaign->template_name,
-                $parameters
+                $languageCode, // 3º argumento agora é a string do idioma
+                $personalizedParams // 4º argumento agora é o array de parâmetros
             );
-
+            
+            // ... resto do método (lógica de sucesso e falha) continua igual ...
             if ($result['success']) {
                 $messageId = $result['data']['messages'][0]['id'] ?? null;
-
-                // Update campaign contact status
-                $campaignContact->update([
-                    'status' => 'sent',
-                    'message_id' => $messageId,
-                    'sent_at' => now(),
-                ]);
-
-                // Create campaign message record
-                CampaignMessage::create([
-                    'campaign_id' => $campaign->id,
-                    'campaign_contact_id' => $campaignContact->id,
-                    'whatsapp_api_message_id' => $messageId,
-                    'status' => 'sent',
-                    'api_response' => $result['data'],
-                    'sent_at' => now(),
-                ]);
-
-                Log::info('Campaign message sent successfully', [
-                    'campaign_id' => $campaign->id,
-                    'contact_id' => $contact->id,
-                    'message_id' => $messageId
-                ]);
-
+                $campaignContact->update(['status' => 'sent', 'message_id' => $messageId, 'sent_at' => now()]);
+                // ... lógica para salvar no histórico, etc.
+                $this->addMessageToConversationHistory($campaign, $contact, $messageId, $personalizedParams);
             } else {
-                // Update campaign contact with error
-                $campaignContact->update([
-                    'status' => 'failed',
-                    'error_message' => $result['message'],
-                ]);
-
-                Log::error('Campaign message failed', [
-                    'campaign_id' => $campaign->id,
-                    'contact_id' => $contact->id,
-                    'error' => $result['message']
-                ]);
+                $errorMessage = $result['message'] ?? 'Failed to send message.';
+                if (isset($result['data']['error']['message'])) {
+                    $errorMessage = $result['data']['error']['message'];
+                }
+                $campaignContact->update(['status' => 'failed', 'error_message' => $errorMessage]);
             }
-
-            // Update campaign statistics
-            $campaign->updateStats();
-
-            // Check if campaign is completed
+            
             $this->checkCampaignCompletion($campaign);
-
             return $result;
 
         } catch (Exception $e) {
-            $campaignContact->update([
-                'status' => 'failed',
-                'error_message' => $e->getMessage(),
-            ]);
-
-            Log::error('Campaign message exception: ' . $e->getMessage(), [
+            $campaignContact->update(['status' => 'failed', 'error_message' => $e->getMessage()]);
+            Log::error('Campaign message job failed', [
                 'campaign_id' => $campaign->id,
-                'contact_id' => $campaignContact->contact_id
+                'campaign_contact_id' => $campaignContact->id,
+                'error' => $e->getMessage()
             ]);
-
-            return [
-                'success' => false,
-                'message' => $e->getMessage()
-            ];
+            // Não relance a exceção para que o job não tente novamente em caso de erro definitivo
+            // e pare a campanha.
+            return ['success' => false, 'message' => $e->getMessage()];
         }
     }
 
     /**
+     * Adiciona uma cópia da mensagem da campanha no histórico da conversa individual.
+     * Esta é a correção para o erro de 'message_id' sem valor padrão.
+     */
+    private function addMessageToConversationHistory(Campaign $campaign, WhatsAppContact $contact, ?string $apiMessageId, array $personalizedParams): void
+    {
+        try {
+            // Garante que a conversa com o contato exista, ou a cria se for a primeira vez.
+            $conversation = WhatsAppConversation::firstOrCreate(
+                [
+                    'contact_id' => $contact->id,
+                    'whatsapp_account_id' => $campaign->whatsapp_account_id
+                ],
+                [
+                    'conversation_id' => \Illuminate\Support\Str::uuid(),
+                    'assigned_user_id' => $campaign->user_id,
+                    'status' => 'open',
+                ]
+            );
+
+            // Obtém o corpo da mensagem com as variáveis substituídas para salvar.
+            $formattedBody = $this->getFormattedMessageBody($campaign, $personalizedParams);
+
+            // ---> INÍCIO DA CORREÇÃO <---
+            $mediaData = null;
+            $mediaUrl = null;
+
+            // Verifica se o componente de cabeçalho (header) existe e tem parâmetros.
+            if (isset($personalizedParams['header'][0])) {
+                $headerParam = $personalizedParams['header'][0];
+                
+                // Procura pela URL da mídia nos tipos suportados.
+                if (isset($headerParam['image']['link'])) {
+                    $mediaUrl = $headerParam['image']['link'];
+                } elseif (isset($headerParam['video']['link'])) {
+                    $mediaUrl = $headerParam['video']['link'];
+                } elseif (isset($headerParam['document']['link'])) {
+                    $mediaUrl = $headerParam['document']['link'];
+                }
+            }
+
+            // Se uma URL de mídia foi encontrada, cria o objeto de mídia.
+            if ($mediaUrl) {
+                $mediaData = [
+                    'url' => $mediaUrl,
+                    'caption' => $formattedBody
+                ];
+            }
+            // ---> FIM DA CORREÇÃO <---
+
+            $conversation->messages()->create([
+                'message_id' => \Illuminate\Support\Str::uuid(),
+                'whatsapp_message_id' => $apiMessageId,
+                'conversation_id' => $conversation->id,
+                'contact_id' => $contact->id,
+                'user_id' => $campaign->user_id,
+                'direction' => 'outbound',
+                'type' => 'template',
+                'content' => $formattedBody,
+                'media' => $mediaData, // Salva o objeto de mídia corretamente.
+                'status' => 'sent',
+                'sent_at' => now(),
+                'is_ai_generated' => false,
+            ]);
+
+            // Atualiza o timestamp da última mensagem na conversa.
+            $conversation->touch('last_message_at');
+
+        } catch (\Exception $e) {
+            // Registra um erro detalhado se não for possível salvar a mensagem no histórico.
+            Log::error('CampaignService: Failed to add campaign message to conversation history.', [
+                'campaign_id' => $campaign->id,
+                'contact_id' => $contact->id,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+        }
+    }
+
+    /**
+     * Verifica se a campanha foi concluída após o processamento de um contato.
+     * Esta é parte da solução para o primeiro erro reportado.
+     */
+    private function checkCampaignCompletion(Campaign $campaign): void
+    {
+        // Força o recarregamento do estado da campanha do banco de dados para evitar condições de corrida
+        $campaign->refresh();
+        
+        // Conta quantos contatos ainda estão com o status 'pending'
+        $pendingCount = $campaign->campaignContacts()->where('status', 'pending')->count();
+        
+        // Se a campanha estiver rodando e não houver mais contatos pendentes, marca como concluída.
+        if ($campaign->isRunning() && $pendingCount === 0) {
+            $campaign->complete(); // Usa o método do modelo para atualizar o status e a data de conclusão
+            Log::info('Campaign completed', ['campaign_id' => $campaign->id]);
+        }
+    }
+    /**
      * Personalize template parameters for contact.
      */
-    protected function personalizeParameters(array $templateParams, WhatsAppContact $contact, array $personalizedParams = []): array
+    protected function personalizeParameters(?array $templateParams, WhatsAppContact $contact): array
     {
-        $finalParams = ['body' => [], 'header' => []];
-
-        // Processa parâmetros do header (mídia)
-        if (isset($templateParams['header']) && $templateParams['header']['type'] === 'media') {
-            $format = strtolower($this->getMediaFormatFromUrl($templateParams['header']['url']));
-            $finalParams['header'][] = [
-                'type' => $format,
-                $format => ['link' => $templateParams['header']['url']]
-            ];
+        $finalParams = ['body' => []];
+        if (empty($templateParams)) {
+            return $finalParams;
         }
 
-        // Processa parâmetros do corpo (variáveis dinâmicas)
-        if(isset($templateParams['body'])) {
-            foreach ($templateParams['body'] as $param) {
-                $paramValue = '';
-                if ($param['type'] === 'field') {
-                    // Mapeamento por campo do contato
-                    if (str_starts_with($param['value'], 'custom.')) {
-                        $customKey = substr($param['value'], 7);
-                        $paramValue = $contact->custom_fields[$customKey] ?? '';
-                    } else {
-                        $paramValue = $contact->{$param['value']} ?? '';
-                    }
-                } else {
-                    // Valor manual
-                    $paramValue = $param['value'];
-                }
+        if (isset($templateParams['header']['type']) && $templateParams['header']['type'] === 'media' && !empty($templateParams['header']['url'])) {
+            $format = strtolower($this->getMediaFormatFromUrl($templateParams['header']['url']));
+            $finalParams['header'][] = ['type' => $format, $format => ['link' => $templateParams['header']['url']]];
+        }
+        
+        $bodyParams = collect($templateParams)->except('header')->sortKeys()->all();
 
-                $finalParams['body'][] = ['type' => 'text', 'text' => $paramValue];
+        foreach ($bodyParams as $fieldKey) {
+            $paramValue = '';
+            if (str_starts_with($fieldKey, 'custom.')) {
+                $customKey = substr($fieldKey, 7);
+                $paramValue = $contact->custom_fields[$customKey] ?? '';
+            } else {
+                $paramValue = $contact->{$fieldKey} ?? '';
             }
+            
+            $finalParams['body'][] = ['type' => 'text', 'text' => (string) $paramValue];
         }
         
         return $finalParams;
@@ -334,27 +398,6 @@ class CampaignService
         }
 
         return json_decode($json, true);
-    }
-
-    /**
-     * Check if campaign is completed.
-     */
-    protected function checkCampaignCompletion(Campaign $campaign): void
-    {
-        $pendingCount = $campaign->campaignContacts()
-            ->where('status', 'pending')
-            ->count();
-
-        if ($pendingCount === 0 && $campaign->isRunning()) {
-            $campaign->complete();
-            
-            Log::info('Campaign completed', [
-                'campaign_id' => $campaign->id,
-                'total_contacts' => $campaign->total_contacts,
-                'sent_count' => $campaign->sent_count,
-                'failed_count' => $campaign->failed_count
-            ]);
-        }
     }
 
     /**
@@ -403,6 +446,37 @@ class CampaignService
             'started_at' => $campaign->started_at,
             'completed_at' => $campaign->completed_at,
         ];
+    }
+
+    private function getFormattedMessageBody(Campaign $campaign, array $personalizedParams): ?string
+    {
+        try {
+            $this->whatsappService->setAccount($campaign->whatsappAccount);
+            $templatesResponse = $this->whatsappService->getTemplates();
+            if (!$templatesResponse['success']) return null;
+
+            $templateBody = null;
+            foreach ($templatesResponse['data'] as $template) {
+                if ($template['name'] === $campaign->template_name) {
+                    foreach ($template['components'] as $component) {
+                        if ($component['type'] === 'BODY') {
+                            $templateBody = $component['text'];
+                            break 2;
+                        }
+                    }
+                }
+            }
+            if (!$templateBody) return null;
+            
+            foreach ($personalizedParams['body'] as $index => $param) {
+                $placeholder = '{{' . ($index + 1) . '}}';
+                $templateBody = str_replace($placeholder, $param['text'], $templateBody);
+            }
+            return $templateBody;
+        } catch (\Exception $e) {
+            Log::error('Could not format message body for logging.', ['error' => $e->getMessage()]);
+            return null;
+        }
     }
 }
 

@@ -184,7 +184,7 @@ class WhatsAppBusinessService
         $url = "{$this->baseUrl}/{$this->account->business_account_id}/message_templates";
         
         $response = Http::withToken($this->account->access_token)->get($url, [
-            'fields' => 'name,status,category,components',
+            'fields' => 'name,status,category,components,language',
             'limit' => 100 // Aumente se tiver mais templates
         ]);
 
@@ -296,10 +296,16 @@ class WhatsAppBusinessService
                 'preview_url' => $data['preview_url'] ?? false,
                 'body' => $data['content'] ?? throw new InvalidArgumentException('Content for text message is required.'),
             ],
-            'image', 'video', 'audio', 'document' => [
+            'image', 'video', 'audio' => [
                 'link' => $data['media_url'] ?? throw new InvalidArgumentException('Media URL is required for media messages.'),
                 'caption' => $data['caption'] ?? null,
-                'filename' => ($type === 'document') ? ($data['filename'] ?? null) : null,
+                // O campo 'filename' foi removido daqui.
+            ],
+            'document' => [
+                'link' => $data['media_url'] ?? throw new InvalidArgumentException('Media URL is required for document messages.'),
+                'caption' => $data['caption'] ?? null,
+                // O campo 'filename' só é adicionado para documentos.
+                'filename' => $data['filename'] ?? null,
             ],
             'sticker' => [
                 'link' => $data['media_url'] ?? throw new InvalidArgumentException('Media URL is required for sticker messages.'),
@@ -334,7 +340,7 @@ class WhatsAppBusinessService
     /**
      * Método "atalho" para enviar template.
      */
-    public function sendTemplateMessage(string $to, string $templateName, array $parameters = [], string $language = 'pt_BR'): array
+    public function sendTemplateMessage(string $to, string $templateName, string $language = 'pt_BR', array $parameters = []): array
     {
         return $this->sendMessage($to, 'template', [
             'template_name' => $templateName,
@@ -510,6 +516,55 @@ class WhatsAppBusinessService
             ]);
             return null;
         }
+    }
+
+    /**
+     * Busca os detalhes de um template específico pelo seu nome.
+     *
+     * @param string $templateName
+     * @return array|null Retorna os dados do template ou null se não for encontrado.
+     */
+    /**
+     * Busca os detalhes de um template específico pelo seu nome.
+     *
+     * @param string $templateName
+     * @return array|null Retorna os dados do template ou null se não for encontrado.
+     */
+    public function getTemplateByName(string $templateName): ?array
+    {
+
+        // 1. Chama o método que busca todos os templates aprovados.
+        $allTemplatesResponse = $this->getTemplates();
+
+        // 2. Verifica se a busca foi bem-sucedida.
+        if (!$allTemplatesResponse['success']) {
+            Log::error(
+                'Could not fetch template list, so cannot find template by name.',
+                [
+                    'account_id' => $this->account?->id,
+                    'template_name' => $templateName,
+                    'error' => $allTemplatesResponse['message'] ?? 'Unknown error.'
+                ]
+            );
+            return null; // O erro original da API já foi logado pelo getTemplates().
+        }
+
+        // 3. Itera sobre os templates retornados para encontrar o correto.
+        $templates = $allTemplatesResponse['data'] ?? [];
+        foreach ($templates as $template) {
+            if (isset($template['name']) && $template['name'] === $templateName) {
+                Log::info('Template found successfully.', ['template' => $template]);
+                // 4. Retorna o array completo do template encontrado.
+                return $template;
+            }
+        }
+
+        Log::warning('Template not found in the list of approved templates.', [
+            'account_id' => $this->account?->id,
+            'template_name' => $templateName
+        ]);
+
+        return null;
     }
 }
 

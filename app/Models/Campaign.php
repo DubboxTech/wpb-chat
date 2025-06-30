@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 
 class Campaign extends Model
 {
@@ -229,6 +230,14 @@ class Campaign extends Model
         }
 
         return round(($this->read_count / $this->delivered_count) * 100, 2);
+    }
+
+    /**
+     * Define a relação de muitos-para-muitos com WhatsAppContact.
+     */
+    public function contacts(): BelongsToMany
+    {
+        return $this->belongsToMany(WhatsAppContact::class, 'campaign_contacts', 'campaign_id', 'contact_id');
     }
 }
 

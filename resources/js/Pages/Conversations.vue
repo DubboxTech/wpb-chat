@@ -175,6 +175,13 @@
                      <MapPinIcon class="h-6 w-6 text-blue-500"/>
                      <span class="text-sm font-medium underline">Ver localização no mapa</span>
                    </a>
+
+                  <div v-else-if="message.type === 'template'">
+                    <div v-if="message.media && message.media.url" class="mb-2">
+                        <img :src="message.media.url" alt="Mídia do template" class="rounded-lg max-w-full h-auto cursor-pointer" @click="openMedia(message.media.url)" />
+                    </div>
+                    <p class="text-sm">{{ message.content }}</p>
+                  </div>
                   <p v-else class="text-sm">{{ message.content }}</p>
                   
                   <div class="flex items-center justify-end mt-1">

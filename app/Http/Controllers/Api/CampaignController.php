@@ -5,13 +5,15 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Campaign;
 use App\Models\WhatsAppTemplate;
-use App\Models\WhatsAppAccount; 
+use App\Models\WhatsAppAccount;
+use App\Models\WhatsAppContact; 
 use App\Services\WhatsApp\CampaignService;
 use App\Services\WhatsApp\WhatsAppBusinessService;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\Storage; 
+use Illuminate\Support\Arr;
 
 class CampaignController extends Controller
 {
@@ -60,12 +62,21 @@ class CampaignController extends Controller
         ]);
     }
 
-    /**
-     * Store a newly created campaign.
-     */
+    
     public function store(Request $request): JsonResponse
     {
-        $validator = Validator::make($request->all(), [
+        // **INÍCIO DA CORREÇÃO**
+        // Decodifica os campos JSON que vêm como string do FormData
+        $requestData = $request->all();
+        if ($request->has('template_parameters') && is_string($request->template_parameters)) {
+            $requestData['template_parameters'] = json_decode($request->template_parameters, true);
+        }
+        if ($request->has('segment_filters') && is_string($request->segment_filters)) {
+            $requestData['segment_filters'] = json_decode($request->segment_filters, true);
+        }
+        // **FIM DA CORREÇÃO**
+
+        $validator = Validator::make($requestData, [ // Usa os dados decodificados
             'name' => 'required|string|max:255',
             'type' => 'required|in:immediate,scheduled,recurring',
             'whatsapp_account_id' => 'required|exists:whatsapp_accounts,id',
@@ -73,93 +84,70 @@ class CampaignController extends Controller
             'template_parameters' => 'nullable|array',
             'segment_filters' => 'nullable|array',
             'scheduled_at' => 'nullable|date|after:now',
-            'header_media' => 'nullable|file|mimes:jpg,jpeg,png,mp4,pdf|max:16384', // Validação para mídia
+            'header_media' => 'nullable|file|mimes:jpg,jpeg,png,mp4,pdf|max:16384',
         ]);
 
         if ($validator->fails()) {
-            return response()->json([
-                'success' => false, 'message' => 'Dados inválidos.', 'errors' => $validator->errors(),
-            ], 422);
+            return response()->json(['success' => false, 'message' => 'Dados inválidos.', 'errors' => $validator->errors()], 422);
         }
 
         try {
-            $campaignData = $request->except('header_media');
+            // Usa os dados do $requestData, não mais do $request direto
+            $campaignData = $validator->validated();
             $campaignData['user_id'] = auth()->id();
-            $campaignData['status'] = $request->filled('scheduled_at') ? 'scheduled' : 'draft';
+            $campaignData['status'] = isset($campaignData['scheduled_at']) ? 'scheduled' : 'draft';
 
-            // **NOVO**: Lógica para upload de mídia
             if ($request->hasFile('header_media')) {
-                $path = $request->file('header_media')->store('campaign_headers', 's3');
-                // Adiciona o tipo e a URL/caminho nos parâmetros do template
+                $path = $request->file('header_media')->storePublicly('campaign_headers', 's3');
                 $campaignData['template_parameters']['header'] = [
-                    'type' => 'media', // Indica que é uma mídia
+                    'type' => 'media',
                     'url' => Storage::disk('s3')->url($path),
                 ];
             }
 
             $campaign = $this->campaignService->createCampaign($campaignData);
             
-            if (!$request->filled('scheduled_at')) {
+            if ($campaign->type === 'immediate') {
                 $this->campaignService->startCampaign($campaign);
             }
 
-            return response()->json([
-                'success' => true, 'message' => 'Campanha criada com sucesso.', 'campaign' => $campaign->load(['user', 'whatsappAccount']),
-            ], 201);
-
+            return response()->json(['success' => true, 'message' => 'Campanha criada com sucesso.', 'campaign' => $campaign->load(['user', 'whatsappAccount'])], 201);
         } catch (\Exception $e) {
             \Log::error('Erro ao criar campanha: ' . $e->getMessage());
-            return response()->json([
-                'success' => false, 'message' => 'Erro ao criar campanha: ' . $e->getMessage(),
-            ], 500);
+            return response()->json(['success' => false, 'message' => 'Erro ao criar campanha: ' . $e->getMessage()], 500);
         }
     }
 
-    /**
-     * Display the specified campaign.
-     */
     public function show(Campaign $campaign): JsonResponse
     {
-        // Check ownership
         if ($campaign->user_id !== auth()->id()) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Acesso negado.',
-            ], 403);
+            return response()->json(['success' => false, 'message' => 'Acesso negado.'], 403);
         }
-
         $campaign->load(['user', 'whatsappAccount']);
         $analytics = $this->campaignService->getCampaignAnalytics($campaign);
-
-        return response()->json([
-            'success' => true,
-            'campaign' => $campaign,
-            'analytics' => $analytics,
-        ]);
+        return response()->json(['success' => true, 'campaign' => $campaign, 'analytics' => $analytics]);
     }
 
-    /**
-     * Update the specified campaign.
-     */
     public function update(Request $request, Campaign $campaign): JsonResponse
     {
-        // Check ownership
         if ($campaign->user_id !== auth()->id()) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Acesso negado.',
-            ], 403);
+            return response()->json(['success' => false, 'message' => 'Acesso negado.'], 403);
+        }
+        if ($campaign->status !== 'draft' && $campaign->status !== 'scheduled') {
+            return response()->json(['success' => false, 'message' => 'Apenas campanhas em rascunho ou agendadas podem ser editadas.'], 422);
         }
 
-        // Only allow updates for draft campaigns
-        if ($campaign->status !== 'draft') {
-            return response()->json([
-                'success' => false,
-                'message' => 'Apenas campanhas em rascunho podem ser editadas.',
-            ], 422);
+        // **INÍCIO DA CORREÇÃO**
+        $requestData = $request->all();
+        if ($request->has('template_parameters') && is_string($request->template_parameters)) {
+            $requestData['template_parameters'] = json_decode($request->template_parameters, true);
         }
+        if ($request->has('segment_filters') && is_string($request->segment_filters)) {
+            $requestData['segment_filters'] = json_decode($request->segment_filters, true);
+        }
+        // **FIM DA CORREÇÃO**
 
-        $validator = Validator::make($request->all(), [
+        $validator = Validator::make($requestData, [
             'name' => 'required|string|max:255',
             'description' => 'nullable|string',
             'template_parameters' => 'nullable|array',
@@ -169,29 +157,43 @@ class CampaignController extends Controller
         ]);
 
         if ($validator->fails()) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Dados inválidos.',
-                'errors' => $validator->errors(),
-            ], 422);
+            return response()->json(['success' => false, 'message' => 'Dados inválidos.', 'errors' => $validator->errors()], 422);
         }
 
-        $campaign->update($request->all());
+        $validatedData = $validator->validated();
 
-        // Reapply segment filters if changed
-        if ($request->has('segment_filters')) {
-            // Clear existing campaign contacts
-            $campaign->campaignContacts()->delete();
+        // **INÍCIO DA CORREÇÃO**
+        if ($request->hasFile('header_media')) {
+            // Exclui a mídia antiga, se existir
+            $oldUrl = Arr::get($campaign->template_parameters, 'header.url');
+            if ($oldUrl) {
+                // Extrai o caminho do arquivo da URL completa
+                $oldPath = str_replace(Storage::disk('s3')->url(''), '', $oldUrl);
+                Storage::disk('s3')->delete($oldPath);
+            }
+
+            // Salva a nova mídia
+            $path = $request->file('header_media')->storePublicly('campaign_headers', 's3');
             
-            // Apply new filters
-            $this->campaignService->applyCampaignSegments($campaign, $request->segment_filters);
+            // Garante que a chave 'header' exista
+            if (!isset($validatedData['template_parameters']['header'])) {
+                $validatedData['template_parameters']['header'] = [];
+            }
+            
+            // Adiciona a nova URL
+            $validatedData['template_parameters']['header']['type'] = 'media';
+            $validatedData['template_parameters']['header']['url'] = Storage::disk('s3')->url($path);
+        }
+        // **FIM DA CORREÇÃO**
+
+        $campaign->update($validatedData);
+
+        if (isset($validatedData['segment_filters'])) {
+            $campaign->campaignContacts()->delete();
+            $this->campaignService->applyCampaignSegments($campaign, $validatedData['segment_filters']);
         }
 
-        return response()->json([
-            'success' => true,
-            'message' => 'Campanha atualizada com sucesso.',
-            'campaign' => $campaign->load(['user', 'whatsappAccount']),
-        ]);
+        return response()->json(['success' => true, 'message' => 'Campanha atualizada com sucesso.', 'campaign' => $campaign->load(['user', 'whatsappAccount'])]);
     }
 
     /**
@@ -395,6 +397,19 @@ class CampaignController extends Controller
         } catch (\Exception $e) {
             return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
         }
+    }
+
+    public function getCampaignContacts(Campaign $campaign): JsonResponse
+    {
+        if ($campaign->user_id !== auth()->id()) {
+            return response()->json(['success' => false, 'message' => 'Acesso negado.'], 403);
+        }
+
+        $contacts = $campaign->contacts()
+            ->select('name', 'phone_number')
+            ->paginate(200); // Paginação para performance
+
+        return response()->json(['success' => true, 'contacts' => $contacts]);
     }
 }
 

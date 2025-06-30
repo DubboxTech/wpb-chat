@@ -66,6 +66,19 @@ class SendCampaignMessage implements ShouldQueue
         // Send the message
         $result = $campaignService->sendCampaignMessage($this->campaign, $this->campaignContact);
 
+        // Recarrega a campanha para garantir que temos os dados mais recentes
+        $this->campaign->refresh();
+
+        // Conta quantos contatos ainda estão pendentes
+        $pendingContacts = CampaignContact::where('campaign_id', $this->campaign->id)
+                                          ->where('status', 'pending')
+                                          ->count();
+
+        // Se não houver mais contatos pendentes, finaliza a campanha
+        if ($pendingContacts === 0) {
+            $this->campaign->complete(); // Utiliza o método do modelo Campaign
+        }
+
         if (!$result['success']) {
             Log::error('Campaign message job failed', [
                 'campaign_id' => $this->campaign->id,
