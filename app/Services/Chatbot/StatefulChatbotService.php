@@ -18,11 +18,8 @@ class StatefulChatbotService
     protected GeminiAIService $geminiService;
     protected TextToSpeechService $ttsService;
 
-    // Constantes de estado (awaiting_menu_choice foi removido da lógica ativa)
-    private const STATE_NEW_CONVERSATION = 'new_conversation';
-    private const STATE_GENERAL_CONVERSATION = 'general_conversation';
-    private const STATE_AWAITING_LOCATION = 'awaiting_location_for_cras';
-    private const STATE_AWAITING_CRAS_RESULT = 'awaiting_cras_result';
+    // Estados simplificados
+    private const STATE_AWAITING_LOCATION = 'awaiting_location';
     private const STATE_AWAITING_APPOINTMENT_CONFIRMATION = 'awaiting_appointment_confirmation';
     private const STATE_CONFIRMING_TRANSFER = 'confirming_transfer';
 
@@ -39,68 +36,118 @@ class StatefulChatbotService
     public function handle(WhatsAppConversation $conversation, WhatsAppMessage $message): void
     {
         $respondWithAudio = ($message->type === 'audio');
-        $state = $conversation->chatbot_state;
 
         if ($message->type === 'location') {
-            // A resposta para uma localização deve ser sempre em texto para clareza.
             $this->handleLocationInput($conversation, $message->content, false);
             return;
         }
 
-        if ($state === self::STATE_NEW_CONVERSATION || is_null($state)) {
+        // Se a conversa for nova, envia uma saudação e depois processa a mensagem.
+        if (is_null($conversation->chatbot_state)) {
             $this->startConversationGreeting($conversation, $respondWithAudio);
-            $this->processState($conversation, $message, $respondWithAudio);
-            return;
         }
 
         $this->processState($conversation, $message, $respondWithAudio);
     }
-
+    
     private function startConversationGreeting(WhatsAppConversation $conversation, bool $respondWithAudio): void
     {
-        $greeting = "Olá! Sou o SIM Social, seu assistente virtual da Secretaria de Desenvolvimento Social. Me diga como posso te ajudar hoje. Você pode me mandar uma mensagem de texto ou um áudio, se preferir.";
+        $greeting = "Olá! Sou o SIM Social, seu assistente virtual da Secretaria de Desenvolvimento Social. Como posso te ajudar hoje?";
         $this->sendResponse($conversation, $greeting, $respondWithAudio);
-        $this->updateState($conversation, self::STATE_GENERAL_CONVERSATION);
     }
 
     private function processState(WhatsAppConversation $conversation, WhatsAppMessage $message, bool $respondWithAudio): void
     {
-        $state = $conversation->chatbot_state ?? self::STATE_GENERAL_CONVERSATION;
+        $state = $conversation->chatbot_state;
         $userInput = $message->content;
 
-        if ($state === self::STATE_AWAITING_LOCATION && ($message->type === 'location' || $userInput)) {
+        // Lógica de estados específicos (quando o bot precisa de uma resposta direta)
+        if ($state === self::STATE_AWAITING_LOCATION && $userInput) {
              $this->handleLocationInput($conversation, $userInput, $respondWithAudio);
              return;
         }
-        
-        // **LÓGICA CORRIGIDA**
-        // O estado 'awaiting_menu_choice' não é mais usado de forma rígida.
-        // Qualquer estado que não seja uma espera específica (como confirmação)
-        // cairá no 'default' e será processado pela IA.
-        switch ($state) {
-            case self::STATE_AWAITING_APPOINTMENT_CONFIRMATION:
-                $this->handleAppointmentConfirmation($conversation, $userInput, $respondWithAudio);
+        if ($state === self::STATE_AWAITING_APPOINTMENT_CONFIRMATION) {
+            $this->handleAppointmentConfirmation($conversation, $userInput, $respondWithAudio);
+            return;
+        }
+        if ($state === self::STATE_CONFIRMING_TRANSFER) {
+            $this->handleTransferConfirmation($conversation, $userInput, $respondWithAudio);
+            return;
+        }
+
+        // **FLUXO PRINCIPAL BASEADO EM IA**
+        // Se não estiver em um estado de espera específico, usa a IA para entender a intenção.
+        if (empty($userInput)) {
+            $this->handleGenericMedia($conversation, $message->type, $respondWithAudio);
+            return;
+        }
+
+        $intentResponse = $this->geminiService->getIntent($conversation, $userInput);
+        $intent = trim($intentResponse['response'] ?? 'nao_entendido');
+        Log::info('Gemini Intent Detected', ['intent' => $intent, 'conversation_id' => $conversation->id]);
+
+        switch ($intent) {
+            case 'agendar_cras':
+            case 'atualizar_cadastro':
+                $this->initiateCrasLocationFlow($conversation, $respondWithAudio);
                 break;
-            case self::STATE_CONFIRMING_TRANSFER:
-                $this->handleTransferConfirmation($conversation, $userInput, $respondWithAudio);
+            case 'consultar_beneficio':
+                $this->initiateBenefitConsultationFlow($conversation, $respondWithAudio);
                 break;
-            case self::STATE_AWAITING_CRAS_RESULT:
-                // Se o usuário responder enquanto espera o resultado do CRAS, a IA pode responder.
-                // Ex: "está demorando muito?" -> a IA pode responder "Só mais um instante, por favor!"
-                $this->handleGeneralQuery($conversation, $userInput, $respondWithAudio);
+            case 'transferir_atendente':
+                $this->offerHumanTransfer($conversation, $respondWithAudio);
                 break;
-            case self::STATE_GENERAL_CONVERSATION:
-            default:
-                if (!empty($userInput)) {
-                    $this->handleGeneralQuery($conversation, $userInput, $respondWithAudio);
-                } else if ($message->type !== 'audio') {
-                    $this->handleGenericMedia($conversation, $message->type, $respondWithAudio);
-                }
+            
+            // Caso 'saudacao_despedida' agora cai aqui junto com 'informacoes_gerais'
+            case 'informacoes_gerais':
+            case 'saudacao_despedida':
+                $this->answerGeneralQuestion($conversation, $userInput, $respondWithAudio);
+                break;
+            
+            default: // nao_entendido
+                $this->askForClarification($conversation, $respondWithAudio);
                 break;
         }
     }
+
+    // --- MÉTODOS DE FLUXO DE AÇÃO ---
+
     
-    public function sendResponse(WhatsAppConversation $conversation, string $text, bool $asAudio = false): void
+
+    private function initiateCrasLocationFlow(WhatsAppConversation $conversation, bool $respondWithAudio): void
+    {
+        $message = "Claro! Para agendamentos ou atualizações no CRAS, preciso saber onde você está. Por favor, me envie sua localização pelo anexo do WhatsApp ou digite seu CEP.";
+        $this->sendResponse($conversation, $message, $respondWithAudio);
+        $this->updateState($conversation, self::STATE_AWAITING_LOCATION);
+    }
+    
+    private function initiateBenefitConsultationFlow(WhatsAppConversation $conversation, bool $respondWithAudio): void
+    {
+        $message = "Para consultar seu benefício, preciso confirmar alguns dados. Por favor, qual o seu CPF?";
+        $this->sendResponse($conversation, $message, $respondWithAudio);
+        // Aqui você mudaria o estado para, por exemplo, 'awaiting_cpf'
+    }
+
+    private function answerGeneralQuestion(WhatsAppConversation $conversation, string $userInput, bool $respondWithAudio): void
+    {
+        $aiResponse = $this->geminiService->processMessage($conversation, $userInput);
+        if ($aiResponse && !empty($aiResponse['response'])) {
+            $this->sendResponse($conversation, $aiResponse['response'], $respondWithAudio);
+        } else {
+            $this->offerHumanTransfer($conversation, $respondWithAudio);
+        }
+        $this->updateState($conversation, null); // Reseta o estado para uma conversa geral
+    }
+
+    private function askForClarification(WhatsAppConversation $conversation, bool $respondWithAudio): void
+    {
+        $message = "Desculpe, não entendi muito bem. Você poderia me dizer de outra forma como posso te ajudar?";
+        $this->sendResponse($conversation, $message, $respondWithAudio);
+        $this->updateState($conversation, null);
+    }
+    
+    // ... (O restante dos métodos, como handleLocationInput, handleAppointmentConfirmation, etc., permanecem os mesmos)
+        public function sendResponse(WhatsAppConversation $conversation, string $text, bool $asAudio = false): void
     {
         $this->whatsappService->setAccount($conversation->whatsappAccount);
         $messageData = [];
@@ -155,23 +202,6 @@ class StatefulChatbotService
         $this->sendResponse($conversation, $responseMessage, $asAudio);
     }
     
-    private function handleGeneralQuery(WhatsAppConversation $conversation, string $userInput, bool $respondWithAudio): void
-    {
-        $intent = $this->detectIntent($userInput);
-        if (in_array($intent, ['schedule_or_update', 'schedule_appointment', 'update_details'])) {
-            $this->initiateCrasLocationFlow($conversation, $respondWithAudio);
-        } elseif ($intent === 'transfer_human') {
-            $this->offerHumanTransfer($conversation, $respondWithAudio);
-        } else {
-            $aiResponse = $this->geminiService->processMessage($conversation, $userInput);
-            if ($aiResponse && !empty($aiResponse['response'])) {
-                $this->sendResponse($conversation, $aiResponse['response'], $respondWithAudio);
-            } else {
-                $this->offerHumanTransfer($conversation, $respondWithAudio);
-            }
-        }
-    }
-
     public function sendCrasResult(int $conversationId, array $crasData): void
     {
         $conversation = WhatsAppConversation::find($conversationId);
@@ -180,23 +210,14 @@ class StatefulChatbotService
         $this->sendResponse($conversation, $message, false);
         $this->updateState($conversation, self::STATE_AWAITING_APPOINTMENT_CONFIRMATION);
     }
-
-    private function handleLocationInput(WhatsAppConversation $conversation, string $location, bool $respondWithAudio): void
+        private function handleLocationInput(WhatsAppConversation $conversation, string $location, bool $respondWithAudio): void
     {
         $cepText = str_contains($location, ',') ? 'sua localização' : "o CEP {$location}";
         $message = "Ótimo! Já estou localizando o CRAS mais próximo de {$cepText} para você. Aguarde um instante!";
         $this->sendResponse($conversation, $message, $respondWithAudio);
-        $this->updateState($conversation, self::STATE_AWAITING_CRAS_RESULT);
+        $this->updateState($conversation, 'awaiting_cras_result');
         FindCrasAndSchedule::dispatch($conversation->id, $location)->onQueue('default')->delay(now()->addSeconds(3));
     }
-
-    private function initiateCrasLocationFlow(WhatsAppConversation $conversation, bool $respondWithAudio): void
-    {
-        $message = "Entendi! Para atualizar dados ou agendar um atendimento, o caminho é o CRAS. Para eu encontrar a unidade mais próxima e já verificar um horário, pode me enviar sua localização ou apenas digitar seu CEP?";
-        $this->sendResponse($conversation, $message, $respondWithAudio);
-        $this->updateState($conversation, self::STATE_AWAITING_LOCATION);
-    }
-
     private function handleAppointmentConfirmation(WhatsAppConversation $conversation, string $userInput, bool $respondWithAudio): void
     {
         $userInput = strtolower(trim($userInput));
@@ -205,7 +226,7 @@ class StatefulChatbotService
             $message = "Agendamento confirmado! Lembre-se de levar um documento com foto e comprovante de residência. Se precisar de mais alguma coisa, é só chamar!";
         }
         $this->sendResponse($conversation, $message, $respondWithAudio);
-        $this->updateState($conversation, self::STATE_GENERAL_CONVERSATION);
+        $this->updateState($conversation, null);
     }
 
     private function offerHumanTransfer(WhatsAppConversation $conversation, bool $respondWithAudio): void
@@ -223,7 +244,7 @@ class StatefulChatbotService
         } else {
             $message = "Tudo bem! Se mudar de ideia, é só me chamar.";
             $this->sendResponse($conversation, $message, $respondWithAudio);
-            $this->updateState($conversation, self::STATE_GENERAL_CONVERSATION);
+            $this->updateState($conversation, null);
         }
     }
 
@@ -236,26 +257,5 @@ class StatefulChatbotService
     {
         $this->sendResponse($conversation, "Combinado! Estou transferindo sua conversa. Por favor, aguarde um momento que logo um atendente irá te responder.", false);
         $conversation->update(['status' => 'pending', 'is_ai_handled' => false, 'chatbot_state' => 'transferred']);
-    }
-
-    private function detectIntent(string $input): ?string
-    {
-        $input = strtolower($input);
-        $updateKeywords = ['atualizar', 'mudar', 'alterar', 'corrigir', 'meus dados', 'meu cadastro'];
-        $scheduleKeywords = ['agendar', 'marcar', 'agendamento', 'horário', 'atendimento', 'cras'];
-        $transferKeywords = ['atendente', 'humano', 'pessoa', 'falar com alguém'];
-        $isUpdate = $this->containsKeywords($input, $updateKeywords);
-        $isSchedule = $this->containsKeywords($input, $scheduleKeywords);
-        if ($isUpdate || $isSchedule) return 'schedule_or_update';
-        if ($this->containsKeywords($input, $transferKeywords)) return 'transfer_human';
-        return null;
-    }
-
-    private function containsKeywords(string $text, array $keywords): bool
-    {
-        foreach ($keywords as $keyword) {
-            if (Str::contains($text, $keyword)) return true;
-        }
-        return false;
     }
 }
