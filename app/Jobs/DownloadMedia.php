@@ -65,7 +65,7 @@ class DownloadMedia implements ShouldQueue
 
             // **LÓGICA ATUALIZADA**
             if ($message->type === 'audio') {
-                TranscribeAudio::dispatch($this->messageId)->onQueue('transcriptions');
+                TranscribeAudio::dispatch($this->messageId, $mediaInfo['mime_type'])->onQueue('transcriptions');
             } elseif ($message->type === 'document') {
                 // Dispara o novo job para análise direta pelo Gemini
                 AnalyzeDocumentWithGemini::dispatch($this->messageId)->onQueue('documents');

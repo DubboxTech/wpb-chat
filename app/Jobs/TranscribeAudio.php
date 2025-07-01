@@ -6,7 +6,6 @@ use App\Models\WhatsAppMessage;
 use App\Services\AI\TranscriptionService;
 use App\Services\Chatbot\StatefulChatbotService;
 use Illuminate\Bus\Queueable;
-use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
@@ -19,38 +18,37 @@ class TranscribeAudio implements ShouldQueue
 
     public int $tries = 2;
     protected int $messageId;
+    protected string $mimeType; // Novo
 
-    public function __construct(int $messageId)
+    public function __construct(int $messageId, string $mimeType)
     {
         $this->messageId = $messageId;
+        $this->mimeType = $mimeType; // Novo
     }
 
-    /**
-     * Executa o job.
-     */
     public function handle(TranscriptionService $transcriptionService, StatefulChatbotService $chatbotService): void
     {
         $message = WhatsAppMessage::find($this->messageId);
 
         if (!$message || $message->type !== 'audio' || empty($message->media['url'])) {
-            Log::warning('Transcription job skipped: message not found, not audio, or has no URL.', ['message_id' => $this->messageId]);
+            Log::warning('Transcription job skipped: message invalid.', ['message_id' => $this->messageId]);
             return;
         }
+        
+        // Log "Handling..." foi movido para cá para ser mais preciso
+        Log::info('Handling WhatsApp message with AI', ['message_id' => $message->id, 'conversation_id' => $message->conversation_id]);
 
         try {
-            $transcribedText = $transcriptionService->transcribe($message->media['url']);
+            // Passa a URL e o mime_type para o serviço
+            $transcribedText = $transcriptionService->transcribe($message->media['url'], $this->mimeType);
 
             if ($transcribedText) {
-                // Salva a transcrição no campo de conteúdo da mensagem
                 $message->content = $transcribedText;
                 $message->save();
                 Log::info('Audio transcribed, now processing with chatbot.', ['message_id' => $this->messageId]);
-
-                // Chama o serviço de chatbot com a mensagem agora contendo o texto
                 $chatbotService->handle($message->conversation, $message);
             } else {
                 Log::warning('Transcription returned empty.', ['message_id' => $this->messageId]);
-                // Responde ao usuário que não entendeu o áudio
                 $chatbotService->handleGenericMedia($message->conversation, 'audio');
             }
         } catch (\Exception $e) {

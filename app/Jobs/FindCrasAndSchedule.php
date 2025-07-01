@@ -30,16 +30,16 @@ class FindCrasAndSchedule implements ShouldQueue
             'location' => $this->location
         ]);
 
-        // --- LÓGICA DE BUSCA (ATUALMENTE MOCKADA) ---
-        // Aqui você poderia, no futuro, consultar uma API de geolocalização
-        // ou um banco de dados com os endereços dos CRAS.
+        $dateFormatted = now()
+            ->addWeekdays(3)
+            ->locale('pt_BR') // Define o idioma para Português do Brasil
+            ->translatedFormat('l, d \d\e F'); // Usa o método para traduzir os nomes do dia/mês
 
-        // Para o CEP 70610-410 (Sudoeste), o CRAS da Asa Sul é o mais próximo.
         $crasData = [
             'name' => 'CRAS Brasília (Asa Sul)',
             'address' => 'Av. L2 Sul, SGAS 614/615',
             'time' => 'às 10:00',
-            'date' => now()->addWeekdays(3)->format('l, d \d\e F'), // Simula para 3 dias úteis no futuro
+            'date' => $dateFormatted, // Usa a data formatada
         ];
         
         // Chama o serviço para enviar a resposta final para o usuário

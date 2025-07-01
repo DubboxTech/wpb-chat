@@ -41,6 +41,12 @@ class StatefulChatbotService
         $respondWithAudio = ($message->type === 'audio');
         $state = $conversation->chatbot_state;
 
+        if ($message->type === 'location') {
+            // A resposta para uma localização deve ser sempre em texto para clareza.
+            $this->handleLocationInput($conversation, $message->content, false);
+            return;
+        }
+
         if ($state === self::STATE_NEW_CONVERSATION || is_null($state)) {
             $this->startConversationGreeting($conversation, $respondWithAudio);
             $this->processState($conversation, $message, $respondWithAudio);
