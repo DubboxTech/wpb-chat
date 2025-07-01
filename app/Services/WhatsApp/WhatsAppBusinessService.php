@@ -87,7 +87,7 @@ class WhatsAppBusinessService
             $payload[$type]['caption'] = $caption;
         }
 
-        return $this->sendMessage($payload);
+        return $this->sendMessagePayload($payload);
     }
 
     /**
@@ -106,7 +106,7 @@ class WhatsAppBusinessService
             'interactive' => $interactive
         ];
 
-        return $this->sendMessage($payload);
+        return $this->sendMessagePayload($payload);
     }
 
     /**
@@ -169,9 +169,6 @@ class WhatsAppBusinessService
         return null;
     }
 
-    /**
-     * Get message templates.
-     */
     /**
      * Get message templates from Meta API.
      */
@@ -296,15 +293,16 @@ class WhatsAppBusinessService
                 'preview_url' => $data['preview_url'] ?? false,
                 'body' => $data['content'] ?? throw new InvalidArgumentException('Content for text message is required.'),
             ],
-            'image', 'video', 'audio' => [
+            'image', 'video' => [
                 'link' => $data['media_url'] ?? throw new InvalidArgumentException('Media URL is required for media messages.'),
                 'caption' => $data['caption'] ?? null,
-                // O campo 'filename' foi removido daqui.
+            ],
+            'audio' => [ // Áudio foi separado e não tem 'caption'
+                'link' => $data['media_url'] ?? throw new InvalidArgumentException('Media URL is required for audio messages.'),
             ],
             'document' => [
                 'link' => $data['media_url'] ?? throw new InvalidArgumentException('Media URL is required for document messages.'),
                 'caption' => $data['caption'] ?? null,
-                // O campo 'filename' só é adicionado para documentos.
                 'filename' => $data['filename'] ?? null,
             ],
             'sticker' => [
@@ -338,6 +336,17 @@ class WhatsAppBusinessService
     }
     
     /**
+     * **NOVO MÉTODO ADICIONADO**
+     * "Atalho" para enviar uma mensagem de áudio.
+     */
+    public function sendAudioMessage(string $to, string $audioUrl): array
+    {
+        return $this->sendMessage($to, 'audio', [
+            'media_url' => $audioUrl,
+        ]);
+    }
+
+    /**
      * Método "atalho" para enviar template.
      */
     public function sendTemplateMessage(string $to, string $templateName, string $language = 'pt_BR', array $parameters = []): array
@@ -360,7 +369,6 @@ class WhatsAppBusinessService
 
             $result = $this->handleResponse($response);
 
-            // Log the message
             if ($result['success']) {
                 Log::info('WhatsApp message sent successfully', [
                     'account_id' => $this->account->id,
@@ -392,9 +400,6 @@ class WhatsAppBusinessService
         }
     }
 
-    /**
-     * Handle API response.
-     */
     protected function handleResponse($response): array
     {
         if ($response->successful()) {
@@ -415,15 +420,10 @@ class WhatsAppBusinessService
         ];
     }
 
-    /**
-     * Format phone number for WhatsApp API.
-     */
     protected function formatPhoneNumber(string $phone): string
     {
-        // Remove all non-numeric characters
         $phone = preg_replace('/\D/', '', $phone);
         
-        // Add country code if not present (assuming Brazil +55)
         if (!str_starts_with($phone, '55')) {
             $phone = '55' . $phone;
         }
@@ -431,9 +431,6 @@ class WhatsAppBusinessService
         return $phone;
     }
 
-    /**
-     * Build template components from parameters.
-     */
     protected function buildTemplateComponents(array $parameters): array
     {
         $components = [];
@@ -462,9 +459,6 @@ class WhatsAppBusinessService
         return $components;
     }
 
-    /**
-     * Extract required parameters from template components.
-     */
     protected function extractRequiredParameters(array $components): array
     {
         $parameters = [];
@@ -479,11 +473,6 @@ class WhatsAppBusinessService
         return array_unique($parameters);
     }
 
-    /**
-     * Get user profile information, including profile picture URL.
-     * @param string $contactId The WhatsApp ID of the user.
-     * @return array|null
-     */
     public function getContactProfile(string $contactId): ?array
     {
         if (!$this->account) {
@@ -491,7 +480,6 @@ class WhatsAppBusinessService
             return null;
         }
 
-        // Endpoint para buscar o nome e a URL da foto do perfil
         $url = "{$this->baseUrl}/{$contactId}?fields=name,profile_picture_url";
 
         try {
@@ -518,25 +506,10 @@ class WhatsAppBusinessService
         }
     }
 
-    /**
-     * Busca os detalhes de um template específico pelo seu nome.
-     *
-     * @param string $templateName
-     * @return array|null Retorna os dados do template ou null se não for encontrado.
-     */
-    /**
-     * Busca os detalhes de um template específico pelo seu nome.
-     *
-     * @param string $templateName
-     * @return array|null Retorna os dados do template ou null se não for encontrado.
-     */
     public function getTemplateByName(string $templateName): ?array
     {
-
-        // 1. Chama o método que busca todos os templates aprovados.
         $allTemplatesResponse = $this->getTemplates();
 
-        // 2. Verifica se a busca foi bem-sucedida.
         if (!$allTemplatesResponse['success']) {
             Log::error(
                 'Could not fetch template list, so cannot find template by name.',
@@ -546,15 +519,13 @@ class WhatsAppBusinessService
                     'error' => $allTemplatesResponse['message'] ?? 'Unknown error.'
                 ]
             );
-            return null; // O erro original da API já foi logado pelo getTemplates().
+            return null;
         }
 
-        // 3. Itera sobre os templates retornados para encontrar o correto.
         $templates = $allTemplatesResponse['data'] ?? [];
         foreach ($templates as $template) {
             if (isset($template['name']) && $template['name'] === $templateName) {
                 Log::info('Template found successfully.', ['template' => $template]);
-                // 4. Retorna o array completo do template encontrado.
                 return $template;
             }
         }
@@ -567,4 +538,3 @@ class WhatsAppBusinessService
         return null;
     }
 }
-

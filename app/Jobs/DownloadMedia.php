@@ -2,7 +2,7 @@
 
 namespace App\Jobs;
 
-use App\Events\MediaMessageUpdated; // Importa o novo evento
+use App\Events\MediaMessageUpdated;
 use App\Models\WhatsAppAccount;
 use App\Models\WhatsAppMessage;
 use App\Services\WhatsApp\WhatsAppBusinessService;
@@ -15,13 +15,13 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use App\Jobs\TranscribeAudio;
+use App\Jobs\AnalyzeDocumentWithGemini; // Importa o novo job
 
 class DownloadMedia implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     public int $tries = 3;
-
     protected int $messageId;
     protected string $mediaId;
     protected int $accountId;
@@ -38,26 +38,17 @@ class DownloadMedia implements ShouldQueue
         $message = WhatsAppMessage::find($this->messageId);
         $account = WhatsAppAccount::find($this->accountId);
 
-        if (!$message || !$account) {
-            Log::error('Could not find message or account for media download.', ['message_id' => $this->messageId]);
-            return;
-        }
+        if (!$message || !$account) { return; }
 
         try {
             $whatsappService->setAccount($account);
             $mediaInfo = $whatsappService->getMediaInfo($this->mediaId);
-
-            if (!$mediaInfo || !isset($mediaInfo['url'])) {
-                throw new \Exception('Could not retrieve media URL from Meta API.');
-            }
+            if (!$mediaInfo || !isset($mediaInfo['url'])) { throw new \Exception('Could not retrieve media URL.'); }
             
             $response = Http::withToken($account->access_token)->get($mediaInfo['url']);
-            if ($response->failed()) {
-                throw new \Exception('Failed to download media content from Meta URL.');
-            }
+            if ($response->failed()) { throw new \Exception('Failed to download media content.'); }
             
             $fileContent = $response->body();
-            
             $fileExtension = $this->getExtensionFromMimeType($mediaInfo['mime_type']);
             $filePath = "media/{$message->conversation->conversation_id}/{$this->mediaId}.{$fileExtension}";
             
@@ -69,12 +60,15 @@ class DownloadMedia implements ShouldQueue
             $message->media = $mediaData;
             $message->save();
 
-            // **NOVA LÓGICA**: Dispara o evento para notificar o frontend.
             event(new MediaMessageUpdated($message));
             Log::info('Media downloaded and event dispatched.', ['message_id' => $this->messageId]);
 
+            // **LÓGICA ATUALIZADA**
             if ($message->type === 'audio') {
                 TranscribeAudio::dispatch($this->messageId)->onQueue('transcriptions');
+            } elseif ($message->type === 'document') {
+                // Dispara o novo job para análise direta pelo Gemini
+                AnalyzeDocumentWithGemini::dispatch($this->messageId)->onQueue('documents');
             }
 
         } catch (\Exception $e) {
@@ -92,6 +86,8 @@ class DownloadMedia implements ShouldQueue
             'video/mp4' => 'mp4', 'video/3gpp' => '3gp',
             'audio/aac' => 'aac', 'audio/mp4' => 'm4a', 'audio/mpeg' => 'mp3', 'audio/amr' => 'amr', 'audio/ogg' => 'ogg',
             'application/pdf' => 'pdf',
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document' => 'docx',
+            'application/vnd.ms-excel' => 'xls',
             default => 'bin',
         };
     }
