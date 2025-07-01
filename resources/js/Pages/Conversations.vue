@@ -17,9 +17,7 @@
 
     <div class="bg-white shadow rounded-lg overflow-hidden">
       <div class="grid grid-cols-1 lg:grid-cols-3 h-[calc(100vh-200px)]">
-        <!-- Coluna da Lista de Conversas -->
         <div class="lg:col-span-1 border-r border-gray-200 flex flex-col overflow-hidden">
-          <!-- Barra de Pesquisa -->
           <div class="p-4 border-b border-gray-200 flex-shrink-0">
             <div class="relative">
               <MagnifyingGlassIcon class="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
@@ -32,7 +30,6 @@
             </div>
           </div>
           
-          <!-- Container da Lista de Conversas (Rolável) -->
           <div class="flex-1 overflow-y-auto divide-y divide-gray-200">
             <div
               v-for="conversation in localConversations"
@@ -83,10 +80,8 @@
               </div>
             </div>
           </div>
-          <!-- Bloco de paginação foi removido daqui -->
         </div>
 
-        <!-- Coluna da Conversa Ativa -->
         <div class="lg:col-span-2 flex flex-col min-h-0">
           <div v-if="!selectedConversation" class="flex-1 flex items-center justify-center bg-gray-50">
             <div class="text-center">
@@ -101,7 +96,6 @@
           </div>
 
           <template v-else>
-            <!-- Cabeçalho do Chat -->
             <div class="p-4 border-b border-gray-200 bg-white flex-shrink-0">
               <div class="flex items-center justify-between">
                 <div class="flex items-center space-x-3">
@@ -134,7 +128,6 @@
               </div>
             </div>
 
-            <!-- Container das Mensagens (Rolável) -->
             <div ref="messagesContainer" class="flex-1 overflow-y-auto p-4 space-y-4 bg-gray-50">
               <div
                 v-for="message in messages"
@@ -147,31 +140,46 @@
                     message.direction === 'outbound' ? 'bg-green-500 text-white' : 'bg-white text-gray-900 shadow'
                   ]"
                 >
-                  <div v-if="message.type === 'image' && message.media && message.media.url" @click="openMedia(message.media.url)" class="cursor-pointer">
-                    <img :src="message.media.url" alt="Imagem enviada" class="rounded-lg max-w-full h-auto" />
+                  <div v-if="message.type === 'image' && message.media">
+                    <div v-if="message.media.url" @click="openMedia(message.media.url)" class="cursor-pointer">
+                      <img :src="message.media.url" alt="Imagem enviada" class="rounded-lg max-w-full h-auto" />
+                    </div>
+                    <div v-else class="w-48 h-32 flex items-center justify-center bg-gray-200 rounded-lg">
+                      <svg class="animate-spin h-6 w-6 text-gray-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                    </div>
                     <p v-if="message.content" class="text-sm mt-2">{{ message.content }}</p>
                   </div>
-                  <div v-else-if="message.type === 'video' && message.media && message.media.url">
-                    <video controls class="rounded-lg max-w-full h-auto">
+                  
+                  <div v-else-if="message.type === 'video' && message.media">
+                     <video v-if="message.media.url" controls class="rounded-lg max-w-full h-auto">
                       <source :src="message.media.url" :type="message.media.mime_type">
                       O seu navegador não suporta vídeos.
                     </video>
+                     <div v-else class="w-48 h-32 flex items-center justify-center bg-gray-200 rounded-lg">
+                       <svg class="animate-spin h-6 w-6 text-gray-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                    </div>
                     <p v-if="message.content" class="text-sm mt-2">{{ message.content }}</p>
                   </div>
-                  <div v-else-if="message.type === 'audio' && message.media && message.media.url">
-                     <audio controls class="w-full">
+                  
+                  <div v-else-if="message.type === 'audio' && message.media">
+                     <audio v-if="message.media.url" controls class="w-full">
                        <source :src="message.media.url" :type="message.media.mime_type">
                        O seu navegador não suporta áudio.
                      </audio>
+                     <div v-else class="w-48 h-12 flex items-center justify-center bg-gray-200 rounded-lg">
+                       <svg class="animate-spin h-5 w-5 text-gray-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                    </div>
+                    <p v-if="message.content" class="text-sm italic text-gray-500 mt-2">"{{ message.content }}"</p>
                   </div>
-                   <a v-else-if="message.type === 'document' && message.media && message.media.url" :href="message.media.url" target="_blank" class="flex items-center space-x-2 p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700">
+
+                  <a v-else-if="message.type === 'document' && message.media && message.media.url" :href="message.media.url" target="_blank" class="flex items-center space-x-2 p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700">
                       <DocumentIcon class="h-6 w-6 text-gray-500"/>
                       <span class="text-sm font-medium">{{ message.media.filename || 'Documento' }}</span>
                    </a>
                   <div v-else-if="message.type === 'sticker' && message.media && message.media.url">
                      <img :src="message.media.url" alt="Sticker" class="w-32 h-32"/>
                   </div>
-                   <a v-else-if="message.type === 'location' && message.content" :href="`https://www.google.com/maps/search/?api=1&query=${message.content.split(': ')[1]}`" target="_blank" class="flex items-center space-x-2 p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700">
+                   <a v-else-if="message.type === 'location' && message.content" :href="`https://maps.google.com/?q=${message.content}`" target="_blank" class="flex items-center space-x-2 p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700">
                      <MapPinIcon class="h-6 w-6 text-blue-500"/>
                      <span class="text-sm font-medium underline">Ver localização no mapa</span>
                    </a>
@@ -182,6 +190,7 @@
                     </div>
                     <p class="text-sm">{{ message.content }}</p>
                   </div>
+                  
                   <p v-else class="text-sm">{{ message.content }}</p>
                   
                   <div class="flex items-center justify-end mt-1">
@@ -200,7 +209,6 @@
               </div>
             </div>
 
-            <!-- Caixa de Entrada de Texto -->
             <div class="p-4 border-t border-gray-200 bg-white flex-shrink-0">
               <div v-if="filePreviewUrl" class="mb-2 p-2 border rounded-lg relative w-40">
                 <img :src="filePreviewUrl" class="rounded-md max-w-full h-auto" />
@@ -256,6 +264,8 @@ import {
   MapPinIcon, PaperClipIcon, XMarkIcon,
 } from '@heroicons/vue/24/outline';
 
+// --- (O restante do script setup permanece o mesmo, exceto pela função handleMediaUpdate) ---
+
 const props = defineProps({
   conversations: Object,
   filters: Object,
@@ -302,6 +312,11 @@ watch([searchQuery, statusFilter], debounce(() => {
 
 const selectConversation = async (conversation) => {
   if (isLoading.value || (selectedConversation.value && selectedConversation.value.id === conversation.id)) return;
+
+  if (selectedConversation.value && window.Echo) {
+    window.Echo.leave(`whatsapp.conversations.${selectedConversation.value.id}`);
+  }
+
   isLoading.value = true;
   selectedConversation.value = conversation;
   try {
@@ -309,6 +324,9 @@ const selectConversation = async (conversation) => {
     messages.value = response.data.conversation.messages;
     const localConv = localConversations.value.find(c => c.id === conversation.id);
     if(localConv) localConv.unreadCount = 0;
+    
+    listenToConversationChannel(conversation.id);
+
   } catch (error) {
     console.error("Erro ao procurar mensagens:", error);
     alert('Não foi possível carregar as mensagens.');
@@ -399,14 +417,15 @@ const toggleAI = async () => {
 const openMedia = (url) => window.open(url, '_blank');
 
 // --- LÓGICA DO LARAVEL ECHO ---
+
 const handleNewMessage = (event) => {
     const message = event.message;
     
     if (selectedConversation.value && selectedConversation.value.id === message.conversation_id) {
         messages.value.push(message);
     }
+
     let conversationInList = localConversations.value.find(c => c.id === message.conversation_id);
-    
     if (conversationInList) {
         conversationInList.lastMessage = message.content || `Nova ${message.type}`;
         conversationInList.lastMessageTime = 'agora';
@@ -425,9 +444,26 @@ const handleStatusUpdate = (event) => {
         const messageInChat = messages.value.find(m => m.whatsapp_message_id === event.whatsapp_message_id);
         if (messageInChat) {
             messageInChat.status = event.status;
-            messageInChat.read_at = event.read_at;
-            messageInChat.delivered_at = event.delivered_at;
         }
+    }
+};
+
+const handleMediaUpdate = (event) => {
+    // **LÓGICA CORRIGIDA**
+    if (selectedConversation.value && selectedConversation.value.id === event.conversation_id) {
+        const messageInChat = messages.value.find(m => m.id === event.message_id);
+        if (messageInChat) {
+            messageInChat.media = event.media;
+            console.log('Media updated for message:', event.message_id);
+        }
+    }
+};
+
+const listenToConversationChannel = (conversationId) => {
+    if (window.Echo) {
+        window.Echo.private(`whatsapp.conversations.${conversationId}`)
+            .listen('.message.status.updated', handleStatusUpdate)
+            .listen('.media.updated', handleMediaUpdate); 
     }
 };
 
@@ -435,14 +471,16 @@ onMounted(() => {
     if (window.Echo) {
         window.Echo.private(`whatsapp.dashboard`)
             .listen('.message.received', handleNewMessage)
-            .listen('.chat.message.sent', handleNewMessage)
-            .listen('.message.status.updated', handleStatusUpdate);
+            .listen('.chat.message.sent', handleNewMessage);
     }
 });
 
 onUnmounted(() => {
     if (window.Echo) {
         window.Echo.leave(`whatsapp.dashboard`);
+        if (selectedConversation.value) {
+            window.Echo.leave(`whatsapp.conversations.${selectedConversation.value.id}`);
+        }
     }
 });
 </script>
