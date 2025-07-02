@@ -23,14 +23,14 @@ class GeminiAIService
     {
         $context = $this->buildConversationContext($conversation);
         $prompt = $this->buildIntentPrompt($userMessage, $context);
-        return $this->sendRequestToGemini($prompt, 'gemini-1.5-flash', 0.2, 100);
+        return $this->sendRequestToGemini($prompt, 'gemini-2.0-flash-lite', 0.2, 100);
     }
 
     public function processMessage(WhatsAppConversation $conversation, string $userMessage): ?array
     {
         $context = $this->buildConversationContext($conversation);
         $prompt = $this->buildTextResponsePrompt($userMessage, $context);
-        return $this->sendRequestToGemini($prompt, 'gemini-1.5-pro', 0.7, 512);
+        return $this->sendRequestToGemini($prompt, 'gemini-2.0-flash-lite', 0.7, 512);
     }
 
     public function analyzeDocumentFromContent(string $fileContentBase64, string $mimeType, string $promptText): ?array
@@ -45,7 +45,7 @@ class GeminiAIService
         return $this->sendRequestToGemini($prompt);
     }
 
-    private function sendRequestToGemini(array|string $promptContents, string $model = 'gemini-1.5-pro', float $temperature = 0.7, int $maxTokens = 1024): ?array
+    private function sendRequestToGemini(array|string $promptContents, string $model = 'gemini-2.0-flash-lite', float $temperature = 0.7, int $maxTokens = 1024): ?array
     {
         if (empty($this->apiKey)) {
             Log::error('Gemini API key is not configured.');
