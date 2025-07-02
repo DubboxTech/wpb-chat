@@ -3,7 +3,6 @@
 namespace App\Listeners;
 
 use App\Events\WhatsAppMessageReceived;
-use App\Models\WhatsAppMessage;
 use App\Services\Chatbot\StatefulChatbotService;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Queue\InteractsWithQueue;
@@ -20,45 +19,54 @@ class ProcessMessageWithAI implements ShouldQueue
         $this->chatbotService = $chatbotService;
     }
 
+    /**
+     * Lida com o evento de nova mensagem.
+     */
     public function handle(WhatsAppMessageReceived $event): void
     {
-        Log::info('[AI_Listener] Job started for message.', ['message_id' => $event->message->id]);
-
         $message = $event->message;
-        
-        // Condições para ignorar o processamento
-        if ($message->direction !== 'inbound') {
-            Log::info('[AI_Listener] Skipping: Message is not inbound.', ['message_id' => $message->id]);
+        $conversation = $message->conversation;
+
+        // **LÓGICA ALTERADA**: Este listener agora IGNORA mensagens de áudio.
+        // O processamento de áudio será iniciado pelo job DownloadMedia.
+        if ($message->type === 'audio' || $message->direction !== 'inbound' || !$message->conversation->is_ai_handled) {
             return;
         }
-        if (in_array($message->type, ['audio', 'document'])) {
-            Log::info('[AI_Listener] Skipping: Message is audio or document, handled by other jobs.', ['message_id' => $message->id]);
-            return;
-        }
-        // if (!$message->conversation->is_ai_handled) {
-        //     Log::info('[AI_Listener] Skipping: AI is disabled for this conversation.', ['conversation_id' => $message->conversation->id]);
-        //     return;
-        // }
 
         try {
-            Log::info('[AI_Listener] Conditions passed. Processing with StatefulChatbotService.', ['message_id' => $message->id]);
-            $this->chatbotService->handle($message->conversation, $message);
-            Log::info('[AI_Listener] Finished processing.', ['message_id' => $message->id]);
-        } catch (\Exception $e) {
-            Log::error('[AI_Listener] CRITICAL ERROR during chatbot handling.', [
+            Log::info('Processing message with Stateful Chatbot Service', [
+                'conversation_id' => $conversation->id,
                 'message_id' => $message->id,
+                'message_type' => $message->type,
+            ]);
+
+            // **MUDANÇA AQUI**: Passa o objeto $message inteiro para o handle.
+            $this->chatbotService->handle($conversation, $message);
+
+        } catch (\Exception $e) {
+            Log::error('Stateful Chatbot processing failed', [
+                'conversation_id' => $conversation->id,
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString()
             ]);
         }
     }
-    
+
+    /**
+     * Lida com falhas no job.
+     */
     public function failed(WhatsAppMessageReceived $event, \Throwable $exception): void
     {
-        Log::critical('[AI_Listener] Job FAILED permanently after all retries.', [
-            'message_id' => $event->message->id, 'exception' => $exception->getMessage(),
+        Log::critical('ProcessMessageWithAI job failed permanently', [
+            'message_id' => $event->message->id,
+            'exception' => $exception->getMessage(),
         ]);
+
+        // Como último recurso, escala para um humano
         $conversation = $event->message->conversation;
-        $conversation->update(['status' => 'pending', 'is_ai_handled' => true]);
+        $conversation->update([
+            'status' => 'pending',
+            'is_ai_handled' => false,
+        ]);
     }
 }
