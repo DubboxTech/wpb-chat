@@ -3,8 +3,10 @@
 namespace App\Services\AI;
 
 use App\Models\WhatsAppConversation;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 use Exception;
 
 class GeminiAIService
@@ -17,28 +19,18 @@ class GeminiAIService
         $this->apiKey = config('services.gemini.api_key');
     }
 
-    /**
-     * **NOVO MÉTODO**
-     * Usa o Gemini para identificar a intenção principal do usuário.
-     */
     public function getIntent(WhatsAppConversation $conversation, string $userMessage): ?array
     {
         $context = $this->buildConversationContext($conversation);
         $prompt = $this->buildIntentPrompt($userMessage, $context);
-        
-        // Usamos um modelo mais rápido para classificação de intenção
-        return $this->sendRequestToGemini($prompt, 'gemini-2.0-flash-lite', 0.2, 100);
+        return $this->sendRequestToGemini($prompt, 'gemini-1.5-flash', 0.2, 100);
     }
 
-    /**
-     * Processa uma pergunta geral do usuário para obter uma resposta em texto.
-     */
     public function processMessage(WhatsAppConversation $conversation, string $userMessage): ?array
     {
         $context = $this->buildConversationContext($conversation);
         $prompt = $this->buildTextResponsePrompt($userMessage, $context);
-        
-        return $this->sendRequestToGemini($prompt, 'gemini-2.0-flash-lite', 0.7, 512);
+        return $this->sendRequestToGemini($prompt, 'gemini-1.5-pro', 0.7, 512);
     }
 
     public function analyzeDocumentFromContent(string $fileContentBase64, string $mimeType, string $promptText): ?array
@@ -85,8 +77,8 @@ class GeminiAIService
 
     private function buildConversationContext(WhatsAppConversation $conversation): string
     {
-        $recentMessages = $conversation->messages()->latest()->limit(8)->get()->reverse();
-        $context = "Histórico da conversa:\n";
+        $recentMessages = $conversation->messages()->latest()->limit(4)->get()->reverse();
+        $context = "Histórico recente da conversa:\n";
         foreach ($recentMessages as $msg) {
             $prefix = $msg->direction === 'inbound' ? "Usuário" : "Assistente";
             $content = $msg->content ?? "[Mídia: {$msg->type}]";
@@ -94,24 +86,38 @@ class GeminiAIService
         }
         return $context;
     }
+
+    private function getKnowledgeBaseContent(): string
+    {
+        return Cache::remember('sedes_knowledge_base', now()->addMinutes(60), function () {
+            if (!Storage::disk('local')->exists('sedes.json')) {
+                return '';
+            }
+            return Storage::disk('local')->get('sedes.json');
+        });
+    }
     
     /**
-     * **NOVO PROMPT**
-     * Instrução para o Gemini agir como um classificador de intenção.
+     * **PROMPT DE INTENÇÃO MODIFICADO**
      */
     private function buildIntentPrompt(string $userMessage, string $context): string
     {
+        $knowledgeBase = $this->getKnowledgeBaseContent();
+
         return "Você é um assistente de IA que classifica a intenção do usuário.
+Base de Conhecimento sobre os serviços:
+---
+{$knowledgeBase}
+---
+
 Ações disponíveis:
 - agendar_cras: Usuário quer agendar, reagendar, encontrar ou ir para um CRAS.
-- consultar_beneficio: Usuário quer saber sobre o status de um benefício (Bolsa Família, BPC). Inclui perguntas como 'consultar meu benefício'.
-- atualizar_cadastro: Usuário menciona atualizar, mudar ou corrigir seus dados cadastrais.
-- informacoes_gerais: Usuário faz uma pergunta geral sobre programas, serviços, ou pede detalhes.
-- transferir_atendente: Usuário pede explicitamente para falar com uma pessoa, atendente ou humano.
+- tentativa_de_cadastro: Usuário envia informações pessoais como CPF, endereço, CEP, nome completo, data de nascimento, etc., na tentativa de se cadastrar ou atualizar dados.
+- informacoes_gerais: Usuário faz uma pergunta geral sobre programas, serviços ou pede detalhes contidos na base de conhecimento.
 - saudacao_despedida: É uma saudação ('oi', 'bom dia'), despedida ('tchau', 'obrigado') ou uma resposta afirmativa/negativa simples ('sim', 'não', 'ok') que não se encaixa em outra intenção.
 - nao_entendido: A intenção não é clara ou não se encaixa em nenhuma das opções acima.
 
-Baseado no histórico e na mensagem atual, retorne APENAS a ação correspondente.
+Baseado na base de conhecimento, no histórico e na mensagem atual, retorne APENAS a ação correspondente.
 
 {$context}
 Mensagem atual do usuário: \"{$userMessage}\"
@@ -121,15 +127,24 @@ Ação:";
 
     private function buildTextResponsePrompt(string $userMessage, string $context): string
     {
-        return "Você é o 'SIM Social', um assistente virtual amigável e prestativo da Secretaria de Desenvolvimento Social (SEDES-DF).
+        $knowledgeBase = $this->getKnowledgeBaseContent();
+
+        return "Você é o 'SIM Social', um assistente virtual amigável e especialista da Secretaria de Desenvolvimento Social (SEDES-DF).
+
+Use a Base de Conhecimento abaixo para formular suas respostas. Seja sempre fiel às informações fornecidas.
+Base de Conhecimento:
+---
+{$knowledgeBase}
+---
+
 Sua personalidade: você é empático, claro e direto. Use emojis para um tom mais humano.
-Seu objetivo: responder perguntas gerais sobre os serviços da SEDES-DF.
+Seu objetivo: responder perguntas gerais sobre os serviços da SEDES-DF usando a base de conhecimento.
 
 **Contexto da Conversa:**
 {$context}
 
 **Pergunta atual do usuário:** \"{$userMessage}\"
 
-Responda a pergunta do usuário de forma concisa e útil. Se a pergunta for sobre algo que você não sabe, peça desculpas e ofereça para transferir para um atendente.";
+Responda a pergunta do usuário de forma concisa e útil, baseando-se nas informações que você possui. Se a pergunta for sobre algo que não está na sua base de conhecimento, peça desculpas e ofereça para agendar um atendimento no CRAS.";
     }
 }
