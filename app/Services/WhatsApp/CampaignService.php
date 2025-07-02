@@ -261,8 +261,7 @@ class CampaignService
                 ],
                 [
                     'conversation_id' => \Illuminate\Support\Str::uuid(),
-                    'assigned_user_id' => $campaign->user_id,
-                    'status' => 'open',
+                    'assigned_user_id' => $campaign->user_id
                 ]
             );
 
@@ -537,5 +536,6 @@ class CampaignService
             return null;
         }
     }
+    
 }
 
