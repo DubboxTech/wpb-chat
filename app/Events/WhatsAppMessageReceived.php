@@ -16,13 +16,18 @@ class WhatsAppMessageReceived implements ShouldBroadcast
     use Dispatchable, InteractsWithSockets, SerializesModels;
 
     public WhatsAppMessage $message;
+    public bool $isNewConversation; // <-- PROPRIEDADE ADICIONADA
 
     /**
      * Create a new event instance.
+     *
+     * @param WhatsAppMessage $message
+     * @param bool $isNewConversation Indica se a conversa é nova ou foi reaberta
      */
-    public function __construct(WhatsAppMessage $message)
+    public function __construct(WhatsAppMessage $message, bool $isNewConversation = false)
     {
         $this->message = $message;
+        $this->isNewConversation = $isNewConversation; // <-- ATRIBUIÇÃO ADICIONADA
     }
 
     /**

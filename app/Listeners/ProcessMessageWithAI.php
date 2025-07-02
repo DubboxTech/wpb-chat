@@ -26,10 +26,9 @@ class ProcessMessageWithAI implements ShouldQueue
     {
         $message = $event->message;
         $conversation = $message->conversation;
+        $isNewConversation = $event->isNewConversation; // <-- OBTÉM O NOVO DADO
 
-        // **LÓGICA ALTERADA**: Este listener agora IGNORA mensagens de áudio.
-        // O processamento de áudio será iniciado pelo job DownloadMedia.
-        if ($message->type === 'audio' || $message->direction !== 'inbound' || !$message->conversation->is_ai_handled) {
+        if ($message->type === 'audio' || $message->direction !== 'inbound' || !$conversation->is_ai_handled) {
             return;
         }
 
@@ -37,11 +36,11 @@ class ProcessMessageWithAI implements ShouldQueue
             Log::info('Processing message with Stateful Chatbot Service', [
                 'conversation_id' => $conversation->id,
                 'message_id' => $message->id,
-                'message_type' => $message->type,
+                'is_new_conversation' => $isNewConversation, // Log para debugging
             ]);
 
-            // **MUDANÇA AQUI**: Passa o objeto $message inteiro para o handle.
-            $this->chatbotService->handle($conversation, $message);
+            // **MUDANÇA AQUI**: Passa o terceiro argumento para o handle.
+            $this->chatbotService->handle($conversation, $message, $isNewConversation);
 
         } catch (\Exception $e) {
             Log::error('Stateful Chatbot processing failed', [

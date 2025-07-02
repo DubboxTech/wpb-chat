@@ -63,9 +63,15 @@ class ProcessWebhook implements ShouldQueue
 
     protected function processIncomingMessage(WhatsAppAccount $account, array $messageData, array $contactData): void
     {
-        if (WhatsAppMessage::where('whatsapp_message_id', $messageData['id'])->exists()) {
-            return;
+        // **INÍCIO DA CORREÇÃO**
+        // Apenas executa a verificação de duplicados em ambiente de produção.
+        if (app()->isProduction()) {
+            if (WhatsAppMessage::where('whatsapp_message_id', $messageData['id'])->exists()) {
+                Log::info('Skipping already processed message in production.', ['whatsapp_message_id' => $messageData['id']]);
+                return;
+            }
         }
+        // **FIM DA CORREÇÃO**
 
         $contact = WhatsAppContact::updateOrCreate(
             ['phone_number' => $messageData['from']],
@@ -91,15 +97,10 @@ class ProcessWebhook implements ShouldQueue
             'created_at' => now()->createFromTimestamp($messageData['timestamp']),
         ]);
         
-        // **INÍCIO DA CORREÇÃO**
         if ($media && isset($media['id'])) {
-            // Adicionado log para clareza no debugging.
             Log::info('Dispatching job to download media.', ['message_id' => $message->id, 'media_id' => $media['id']]);
-            
-            // Alterado para a fila 'default' para garantir o processamento em ambientes locais.
             DownloadMedia::dispatch($message->id, $media['id'], $account->id)->onQueue('default');
         }
-        // **FIM DA CORREÇÃO**
 
         $conversation->update(['last_message_at' => $message->created_at, 'unread_count' => $conversation->unread_count + 1]);
         
@@ -130,16 +131,31 @@ class ProcessWebhook implements ShouldQueue
     
     protected function getOrCreateConversation(WhatsAppAccount $account, WhatsAppContact $contact): array
     {
-        $activeConversation = WhatsAppConversation::where('contact_id', $contact->id)
+        // 1. Tenta encontrar a conversa mais recente para o contato, independentemente do status.
+        $latestConversation = WhatsAppConversation::where('contact_id', $contact->id)
             ->where('whatsapp_account_id', $account->id)
-            ->whereIn('status', ['open', 'pending'])
-            ->where('updated_at', '>=', now()->subHours(6))
+            ->latest('updated_at') // Ordena pela mais recente
             ->first();
 
-        if ($activeConversation) {
-            return [$activeConversation, false];
+        // 2. Se uma conversa existir
+        if ($latestConversation) {
+            // Se estiver fechada, reabre e reseta o estado.
+            if ($latestConversation->status === 'closed') {
+                $latestConversation->update([
+                    'status' => 'open',
+                    'is_ai_handled' => true, // Devolve para a IA
+                    'chatbot_state' => null, // Limpa o estado do chatbot
+                    'assigned_user_id' => null, // Remove o agente atribuído
+                ]);
+                Log::info('Reopening closed conversation.', ['conversation_id' => $latestConversation->id]);
+                return [$latestConversation, true]; // Retorna como se fosse "nova" para o fluxo
+            }
+            
+            // Se estiver aberta ou pendente, apenas a retorna.
+            return [$latestConversation, false];
         }
 
+        // 3. Se nenhuma conversa existir, cria uma nova.
         $newConversation = WhatsAppConversation::create([
             'conversation_id' => Str::uuid(),
             'whatsapp_account_id' => $account->id,
@@ -149,6 +165,7 @@ class ProcessWebhook implements ShouldQueue
             'chatbot_state' => null,
         ]);
         
+        Log::info('Creating new conversation.', ['conversation_id' => $newConversation->id]);
         return [$newConversation, true];
     }
 

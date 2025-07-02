@@ -8,54 +8,33 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Exception;
 
-/**
- * Serviço de integração com o Google Gemini para o chatbot SIM Social.
- * Agora envia **todo** o histórico de mensagens e **toda** a base de dados (sedes.json)
- * para o modelo, conforme solicitado.
- */
 class GeminiAIService
 {
-    /** --------------------------------------------------------------------
-     *  Configuração de API
-     * -------------------------------------------------------------------*/
     protected string $apiKey;
     protected string $baseUrl = 'https://generativelanguage.googleapis.com/v1beta';
     private ?string $sedesKnowledgeBase = null;
 
-    /** --------------------------------------------------------------------
-     *  Construtor
-     * -------------------------------------------------------------------*/
     public function __construct()
     {
         $this->apiKey = (string) config('services.gemini.api_key');
         $this->loadKnowledgeBase();
     }
 
-    /** --------------------------------------------------------------------
-     *  Carrega o arquivo sedes.json completo
-     * -------------------------------------------------------------------*/
     private function loadKnowledgeBase(): void
     {
         try {
             if (Storage::disk('local')->exists('sedes.json')) {
                 $this->sedesKnowledgeBase = Storage::disk('local')->get('sedes.json');
-                Log::info('Base de conhecimento (sedes.json) carregada com sucesso.');
-            } else {
-                Log::warning('Arquivo de base de conhecimento (sedes.json) não encontrado.');
             }
         } catch (Exception $e) {
             Log::error('Falha ao carregar sedes.json.', ['error' => $e->getMessage()]);
         }
     }
 
-    /** --------------------------------------------------------------------
-     *  ANALYSE – identifica intenção do usuário
-     * -------------------------------------------------------------------*/
     public function analyzeUserMessage(WhatsAppConversation $conversation, string $userMessage): ?array
     {
-        $context     = $this->buildConversationContext($conversation);   // **todo o histórico**
-        $prompt      = $this->buildAnalysisPrompt($userMessage, $context, $conversation->chatbot_state);
-        Log::debug('Prompt de análise enviado ao Gemini.', ['prompt' => $prompt]);
+        $context = $this->buildConversationContext($conversation);
+        $prompt = $this->buildAnalysisPrompt($userMessage, $context, $conversation->chatbot_state);
         $rawResponse = $this->sendRequestToGemini($prompt);
 
         if (!$rawResponse || empty($rawResponse['response'])) {
@@ -63,7 +42,7 @@ class GeminiAIService
         }
 
         $jsonString = $this->extractJsonFromString($rawResponse['response']);
-        $analysis   = json_decode($jsonString, true);
+        $analysis = json_decode($jsonString, true);
 
         if (json_last_error() === JSON_ERROR_NONE && is_array($analysis)) {
             Log::info('Análise do Gemini recebida.', ['analysis' => $analysis]);
@@ -74,56 +53,33 @@ class GeminiAIService
         return null;
     }
 
-    /** --------------------------------------------------------------------
-     *  PROCESS – gera a resposta do assistente
-     * -------------------------------------------------------------------*/
     public function processMessage(WhatsAppConversation $conversation, string $userMessage): ?array
     {
-        $context = $this->buildConversationContext($conversation);       // **todo o histórico**
-        $prompt  = $this->buildTextResponsePrompt($userMessage, $context);
-
-        Log::debug('Prompt enviado ao Gemini.', ['prompt' => $prompt]);
-
-        // Temperatura 0.7 para respostas mais próximas da fala humana
+        $context = $this->buildConversationContext($conversation);
+        $prompt = $this->buildTextResponsePrompt($userMessage, $context);
         return $this->sendRequestToGemini($prompt, 0.7);
     }
 
-    /** --------------------------------------------------------------------
-     *  ENVIO À API GEMINI
-     * -------------------------------------------------------------------*/
-    private function sendRequestToGemini(
-        string $promptContents,
-        float  $temperature = 0.2,
-        int    $maxTokens   = 2048
-    ): ?array {
+    private function sendRequestToGemini(string $promptContents, float $temperature = 0.2, int $maxTokens = 2048): ?array
+    {
         if (empty($this->apiKey)) {
             Log::error('Chave da API do Gemini não configurada.');
             return null;
         }
 
-        $model   = 'gemini-2.0-flash-lite';
+        $model = 'gemini-2.0-flash-lite';
         $payload = [
-            'generationConfig' => [
-                'temperature'     => $temperature,
-                'maxOutputTokens' => $maxTokens,
-            ],
+            'generationConfig' => ['temperature' => $temperature, 'maxOutputTokens' => $maxTokens],
             'contents' => [['parts' => [['text' => $promptContents]]]],
         ];
 
         try {
-            $url      = "{$this->baseUrl}/models/{$model}:generateContent?key={$this->apiKey}";
+            $url = "{$this->baseUrl}/models/{$model}:generateContent?key={$this->apiKey}";
             $response = Http::withHeaders(['Content-Type' => 'application/json'])->post($url, $payload);
 
-            if (
-                $response->successful()
-                && isset($response->json()['candidates'][0]['content']['parts'][0]['text'])
-            ) {
-                return [
-                    'success'  => true,
-                    'response' => trim($response->json()['candidates'][0]['content']['parts'][0]['text']),
-                ];
+            if ($response->successful() && isset($response->json()['candidates'][0]['content']['parts'][0]['text'])) {
+                return ['success' => true, 'response' => trim($response->json()['candidates'][0]['content']['parts'][0]['text'])];
             }
-
             Log::error('Erro na API do Gemini.', ['status' => $response->status(), 'body' => $response->body()]);
             return null;
         } catch (Exception $e) {
@@ -132,100 +88,97 @@ class GeminiAIService
         }
     }
 
-    /** --------------------------------------------------------------------
-     *  MONTA TODO O HISTÓRICO DA CONVERSA
-     * -------------------------------------------------------------------*/
     private function buildConversationContext(WhatsAppConversation $conversation): string
     {
-        // Carrega todas as mensagens da conversa para garantir o contexto completo.
         $messages = $conversation->messages()->orderBy('created_at', 'asc')->get();
-
-        if ($messages->count() <= 1) {
-            return 'Nenhum histórico de conversa anterior.';
-        }
-
-        // Remove a última mensagem da coleção, pois é a que está sendo processada atualmente.
-        $messages->pop();
-
+        if ($messages->isEmpty()) return 'Nenhum histórico de conversa anterior.';
         $context = "Histórico da conversa:\n";
         foreach ($messages as $msg) {
-            $author  = $msg->direction === 'inbound' ? 'Usuário' : 'Assistente';
+            $author = $msg->direction === 'inbound' ? 'Usuário' : 'Assistente';
             $content = $msg->content ?? "[Mídia: {$msg->type}]";
             $context .= "{$author}: {$content}\n";
         }
         return $context;
     }
-    /** --------------------------------------------------------------------
-     *  CRIA O PROMPT DE ANÁLISE (JSON OBRIGATÓRIO)
-     * -------------------------------------------------------------------*/
+
     private function buildAnalysisPrompt(string $userMessage, string $context, ?string $state): string
     {
-        $stateDescription = $state
-            ? "O estado atual da conversa é '{$state}'."
-            : 'A conversa não possui estado específico.';
-
+        $stateDescription = $state ? "O estado atual da conversa é '{$state}'." : 'A conversa não possui estado específico.';
         $jsonWrapper = "Responda APENAS com o JSON solicitado, sem texto extra.\n\n";
 
         return $jsonWrapper . <<<PROMPT
-Você é um sistema de classificação. Devolva JSON com:
+Você é um sistema de classificação para o chatbot da **SEDES-DF (Secretaria de Desenvolvimento Social do Distrito Federal)**.
+Seu objetivo é identificar a intenção do usuário sobre programas sociais e serviços.
+
+Devolva um JSON com a seguinte estrutura:
 {
   "is_off_topic": boolean,
   "contains_pii": boolean,
   "pii_type": "cpf" | "rg" | "cnh" | "outro" | null,
   "cep_detected": string | null,
-  "intent": "agendar_cras" | "consultar_beneficio" | "atualizar_cadastro" |
-            "informacoes_gerais" | "transferir_atendente" | "saudacao_despedida" |
-            "nao_entendido"
+  "intent": "df_social" | "df_sem_miseria" | "restaurantes_comunitarios" | "prato_cheio" | "cartao_gas" | "auxilio_natalidade" | "auxilio_funeral" | "auxilio_vulnerabilidade" | "acessuas_trabalho" | "projeto_warao" | "bolsa_familia" | "vale_gas_nacional" | "tarifa_social_energia" | "bpc" | "cadunico" | "unidades_atendimento" | "agendar_cras" | "info_sedes" | "informacoes_gerais" | "transferir_atendente" | "saudacao_despedida" | "nao_entendido"
 }
 
-Diretrizes:
-1. {$stateDescription}
-2. CPF/RG/CNH = PII. CEP NÃO é PII.
-3. Se encontrar 8 dígitos consecutivos, extraia em "cep_detected".
-4. Intenção principal → preencher "intent".
+Diretrizes de Mapeamento de Intenção:
+- "DF Social": `df_social`
+- "DF Sem Miséria": `df_sem_miseria`
+- "Restaurante comunitário", "comida barata", "almoço por 2 reais": `restaurantes_comunitarios`
+- "Prato Cheio": `prato_cheio`
+- "Cartão Gás" ou "auxílio gás do DF": `cartao_gas`
+- "Auxílio Natalidade", "ajuda para recém-nascido": `auxilio_natalidade`
+- "Auxílio Funeral", "ajuda com enterro": `auxilio_funeral`
+- "Auxílio por calamidade", "ajuda por despejo ou incêndio": `auxilio_vulnerabilidade`
+- "Acessuas", "curso", "emprego": `acessuas_trabalho`
+- "Warao", "ajuda para refugiados": `projeto_warao`
+- "Bolsa Família": `bolsa_familia`
+- "Vale-Gás" (nacional): `vale_gas_nacional`
+- "Conta de luz com desconto", "tarifa de energia": `tarifa_social_energia`
+- "BPC", "LOAS", "benefício para idoso ou pessoa com deficiência": `bpc`
+- "Cadastro Único", "CadÚnico", "como me cadastrar": `cadunico`
+- "Endereço do CRAS", "onde fica o CREAS": `unidades_atendimento`
+- "Agendar no CRAS", "marcar atendimento": `agendar_cras`
+- "O que é a Sedes", "qual o trabalho da secretaria": `info_sedes`
 
-Contexto completo:
+Outras Diretrizes:
+1. {$stateDescription}
+2. Se a intenção não se encaixar em nenhuma acima mas for sobre a SEDES, use `informacoes_gerais`.
+3. CPF/RG/CNH são considerados PII. CEP NÃO é PII.
+4. Se encontrar um CEP (8 dígitos), extraia-o para "cep_detected".
+
+Contexto da conversa:
 {$context}
 
-Mensagem do usuário: "{$userMessage}"
+Mensagem do usuário para analisar: "{$userMessage}"
 PROMPT;
     }
 
-    /** --------------------------------------------------------------------
-     *  CRIA O PROMPT DE RESPOSTA (TODO O KB + HISTÓRICO)
-     * -------------------------------------------------------------------*/
     private function buildTextResponsePrompt(string $userMessage, string $context): string
     {
         return <<<PROMPT
-Você é o **SIM Social**, assistente virtual da SEDES-DF.
+Você é o **SIM Social**, o assistente virtual da **SEDES-DF**. Sua função é ajudar cidadãos com informações sobre programas e serviços sociais, com base no conhecimento fornecido.
 
---- BASE DE CONHECIMENTO (COMPLETE) ---
+--- BASE DE CONHECIMENTO (SEDES.JSON) ---
 {$this->sedesKnowledgeBase}
 --- FIM DA BASE ---
 
-# Regras
-1. Responda em português claro e amigável. Use emojis se desejar.
-2. NÃO retorne JSON, números puros ou código – apenas texto compreensível.
-3. Se não souber, diga que não possui essa informação e pergunte se pode ajudar em algo mais.
+# Regras Essenciais
+1. Seja sempre amigável, prestativo e utilize uma linguagem clara e acessível. Emojis são bem-vindos.
+2. NUNCA invente informações. Se a resposta não estiver na base de conhecimento, informe que não possui detalhes sobre aquele tópico específico no momento e pergunte se pode ajudar em algo mais.
+3. Não peça dados pessoais sensíveis como CPF ou RG.
+4. Responda apenas com texto compreensível, sem JSON ou código.
 
-# Histórico
+# Histórico da Conversa
 {$context}
 
-# Pergunta atual
+# Pergunta do Usuário
 {$userMessage}
 PROMPT;
     }
 
-    /** --------------------------------------------------------------------
-     *  Extrai o primeiro JSON válido encontrado na string
-     * -------------------------------------------------------------------*/
     private function extractJsonFromString(string $text): ?string
     {
         $start = strpos($text, '{');
-        $end   = strrpos($text, '}');
-
-        return ($start !== false && $end !== false)
-            ? substr($text, $start, $end - $start + 1)
-            : null;
+        $end = strrpos($text, '}');
+        return ($start !== false && $end !== false) ? substr($text, $start, $end - $start + 1) : null;
     }
 }

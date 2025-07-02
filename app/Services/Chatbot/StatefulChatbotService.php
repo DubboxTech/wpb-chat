@@ -56,13 +56,33 @@ class StatefulChatbotService
      * 2. NOVO MÉTODO:
      * Envia uma mensagem de boas-vindas amigável.
      */
-    private function sendWelcomeMessage(WhatsAppConversation $conversation, bool $respondWithAudio): void
+    private function sendWelcomeMessage(WhatsAppConversation $conversation): void
     {
-        $welcomeText = "Olá! 👋 Eu sou o SIM Social, o assistente virtual da Secretaria de Desenvolvimento Social (SEDES-DF).\n\n" .
-                       "Estou aqui para te ajudar com informações sobre nossos programas, serviços e unidades de atendimento. " .
-                       "Você pode me mandar uma mensagem de texto ou um áudio explicando o que precisa. Em que posso te ajudar hoje? 😊";
-        
-        $this->sendResponse($conversation, $welcomeText, $respondWithAudio);
+        // 1. Envia a mensagem de texto introdutória
+        $welcomeText = "Olá! 👋 Eu sou o *SIM Social*, o assistente virtual da Secretaria de Desenvolvimento Social (SEDES-DF).\n\nPara facilitar, ouça o áudio a seguir com um resumo do que eu posso fazer por você! 👇";
+        $this->sendResponse($conversation, $welcomeText, false);
+
+        try {
+            // 2. Define a URL estática para o áudio de boas-vindas
+            $audioUrl = 'https://whatsapp-dubbox.nyc3.digitaloceanspaces.com/audio_responses/59442778-78df-4c06-b939-a62646ef412c/0be3802b-e095-4938-909c-50763df0089f.mp3';
+
+            if ($audioUrl) {
+                // 3. Envia a mensagem de áudio
+                $this->whatsappService->setAccount($conversation->whatsappAccount);
+                $response = $this->whatsappService->sendAudioMessage($conversation->contact->phone_number, $audioUrl);
+
+                // 4. Salva a mensagem de áudio enviada no histórico
+                if ($response && $response['success']) {
+                    $messageData = ['type' => 'audio', 'media' => ['url' => $audioUrl]];
+                    $this->saveOutboundMessage($conversation, null, $response['data'], $messageData);
+                }
+            }
+        } catch (\Exception $e) {
+            Log::error('Falha ao enviar áudio de boas-vindas.', [
+                'conversation_id' => $conversation->id,
+                'error' => $e->getMessage()
+            ]);
+        }
     }
 
     private function processState(WhatsAppConversation $conversation, WhatsAppMessage $message, bool $respondWithAudio): void
@@ -124,25 +144,88 @@ class StatefulChatbotService
         $this->executeIntent($conversation, $analysis, $userInput, $respondWithAudio);
     }
 
+    /**
+     * **MÉTODO ATUALIZADO**
+     * Contém a lógica de resposta para todas as intenções, com textos
+     * mais amigáveis e formatados para o WhatsApp.
+     */
     private function executeIntent(WhatsAppConversation $conversation, array $analysis, string $userInput, bool $respondWithAudio): void
     {
         $intent = $analysis['intent'] ?? 'nao_entendido';
         Log::info('Executando intenção', ['intent' => $intent, 'conversation_id' => $conversation->id]);
+        
+        $responseText = null;
+        $callToAction = "\n\nPosso te ajudar com mais alguma informação sobre este ou outro programa? 😊";
+
         switch ($intent) {
             case 'agendar_cras':
             case 'atualizar_cadastro':
+            case 'unidades_atendimento':
                 $this->initiateCrasLocationFlow($conversation, $respondWithAudio);
+                return;
+
+            case 'df_social':
+                $responseText = "O benefício *DF Social* é um valor de R$ 150,00 mensais, destinado a famílias de baixa renda inscritas no CadÚnico. 📄" .
+                                "\n\nPara saber todos os detalhes e como solicitar, o ideal é procurar uma unidade do CRAS ou acessar o site do GDF Social.";
                 break;
-            case 'consultar_beneficio':
-                $this->initiateBenefitConsultationFlow($conversation, $respondWithAudio);
+            
+            case 'prato_cheio':
+                $responseText = "O *Cartão Prato Cheio* é uma ajuda e tanto! 💳 Ele oferece um crédito de R$ 250,00 por mês para a compra de alimentos para famílias em situação de insegurança alimentar." .
+                                "\n\nVocê pode conferir o calendário de pagamentos e a lista de beneficiários no site oficial da Sedes-DF. 😉";
                 break;
+            
+            case 'cartao_gas':
+                $responseText = "Claro! O *Cartão Gás* do DF concede um auxílio de R$ 100,00 a cada dois meses para ajudar na compra do botijão de gás de 13kg. 🍳🔥" .
+                                "\n\nÉ um apoio importante para as famílias de baixa renda aqui do Distrito Federal.";
+                break;
+
+            case 'bolsa_familia':
+                $responseText = "O *Bolsa Família* é um programa essencial do Governo Federal! 👨‍👩‍👧‍👦" .
+                                "\n\nO valor base é de *R$ 600,00*, com valores adicionais para famílias com crianças e gestantes." .
+                                "\n\nA porta de entrada para receber é estar com o *Cadastro Único (CadÚnico)* em dia. Você pode fazer ou atualizar o seu em uma unidade do CRAS.";
+                break;
+
+            case 'bpc':
+                $responseText = "O *Benefício de Prestação Continuada (BPC/LOAS)* garante um salário-mínimo por mês para idosos com 65 anos ou mais e para pessoas com deficiência de qualquer idade, desde que a renda da família seja baixa. 👵♿" .
+                                "\n\nA solicitação é feita diretamente no INSS, mas o CRAS é o lugar certo para receber toda a orientação que você precisa!";
+                break;
+            
+            case 'auxilio_natalidade':
+                $responseText = "Que momento especial! 👶 O *Auxílio Natalidade* é um apoio de R$ 200,00 (pago em parcela única) para ajudar com as primeiras despesas do bebê em famílias de baixa renda." .
+                                "\n\nPara solicitar, a mamãe ou o responsável deve procurar o CRAS mais próximo com seus documentos e os do recém-nascido. ✨";
+                break;
+
+            case 'auxilio_funeral':
+                $responseText = "Sinto muito pela sua perda. Para apoiar as famílias de baixa renda neste momento difícil, a SEDES oferece o *Auxílio Funeral*. O benefício pode ser um valor de R$ 415,00 ou a cobertura do serviço funerário. 🙏" .
+                                "\n\nPara solicitar, é necessário ir a um CRAS com a certidão de óbito e os documentos da família.";
+                $callToAction = "\n\nSe precisar de mais alguma orientação, estou à disposição."; // Tom mais sóbrio
+                break;
+            
+            case 'restaurantes_comunitarios':
+                $responseText = "Claro! Os *Restaurantes Comunitários* são uma ótima opção! 🍽️" .
+                                "\n\nTemos 18 unidades no DF que servem refeições completas e de qualidade por um preço super acessível, a partir de R$ 2,00. E o melhor: é aberto para *toda* a população!";
+                break;
+                
+            case 'cadunico':
+                $responseText = "O *Cadastro Único*, ou CadÚnico, é a porta de entrada para a maioria dos programas sociais dos governos Federal e do DF, como o Bolsa Família e o Prato Cheio. 📝" .
+                                "\n\nManter ele atualizado é muito importante! Para se inscrever ou atualizar, você precisa agendar um atendimento no CRAS mais próximo da sua casa.";
+                $callToAction = "\n\nPosso ajudar a encontrar uma unidade ou quer saber de outro programa?";
+                break;
+
+            case 'info_sedes':
             case 'informacoes_gerais':
             case 'saudacao_despedida':
                 $this->answerGeneralQuestion($conversation, $userInput, $respondWithAudio);
-                break;
+                return;
+
             default:
                 $this->askForClarification($conversation, $respondWithAudio);
-                break;
+                return;
+        }
+
+        if ($responseText) {
+            $this->sendResponse($conversation, $responseText . $callToAction, $respondWithAudio);
+            $this->updateState($conversation, null);
         }
     }
     
