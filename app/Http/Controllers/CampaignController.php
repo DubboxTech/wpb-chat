@@ -40,4 +40,22 @@ class CampaignController extends Controller
             'segments' => $tags,
         ]);
     }
+
+    public function report(Campaign $campaign)
+    {
+        // Verifica se o utilizador autenticado é o dono da campanha
+        if ($campaign->user_id !== auth()->id()) {
+            abort(403, 'Acesso não autorizado.');
+        }
+
+        // Garante que apenas campanhas concluídas podem ter relatórios
+        if ($campaign->status !== 'completed') {
+            abort(404, 'Relatórios estão disponíveis apenas para campanhas concluídas.');
+        }
+
+        // Renderiza a página Inertia, passando os dados da campanha
+        return Inertia::render('Campaigns/Report', [
+            'campaign' => $campaign->load('whatsappAccount'), // Carrega a relação para ter os dados da conta
+        ]);
+    }
 }

@@ -433,19 +433,78 @@ class CampaignService
      */
     public function getCampaignAnalytics(Campaign $campaign): array
     {
+        // Contagem de status diretamente da tabela de contatos da campanha
+        $statusCounts = $campaign->campaignContacts()
+            ->select('status', DB::raw('COUNT(*) as count'))
+            ->groupBy('status')
+            ->pluck('count', 'status');
+
+        $totalContacts = $campaign->total_contacts;
+        $sentCount = $statusCounts->get('sent', 0) + $statusCounts->get('delivered', 0) + $statusCounts->get('read', 0);
+        $deliveredCount = $statusCounts->get('delivered', 0) + $statusCounts->get('read', 0);
+        $readCount = $statusCounts->get('read', 0);
+        $failedCount = $statusCounts->get('failed', 0);
+
+        // Calcula as percentagens com base nos dados em tempo real
+        $progressPercentage = $totalContacts > 0 ? round((($sentCount + $failedCount) / $totalContacts) * 100, 2) : 0;
+        $successRate = $sentCount > 0 ? round(($deliveredCount / $sentCount) * 100, 2) : 0;
+        $readRate = $deliveredCount > 0 ? round(($readCount / $deliveredCount) * 100, 2) : 0;
+
         return [
-            'total_contacts' => $campaign->total_contacts,
-            'sent_count' => $campaign->sent_count,
-            'delivered_count' => $campaign->delivered_count,
-            'read_count' => $campaign->read_count,
-            'failed_count' => $campaign->failed_count,
-            'progress_percentage' => $campaign->getProgressPercentage(),
-            'success_rate' => $campaign->getSuccessRate(),
-            'read_rate' => $campaign->getReadRate(),
+            'total_contacts' => $totalContacts,
+            'sent_count' => $sentCount,
+            'delivered_count' => $deliveredCount,
+            'read_count' => $readCount,
+            'failed_count' => $failedCount,
+            'progress_percentage' => $progressPercentage,
+            'success_rate' => $successRate,
+            'read_rate' => $readRate,
             'status' => $campaign->status,
             'started_at' => $campaign->started_at,
             'completed_at' => $campaign->completed_at,
         ];
+    }
+
+    /**
+     * Obtém os dados detalhados do relatório da campanha.
+     */
+    public function getCampaignReportData(Campaign $campaign): array
+    {
+        // Obtém as estatísticas gerais calculadas em tempo real.
+        $analytics = $this->getCampaignAnalytics($campaign);
+
+        // 1. Prepara os dados para o gráfico de pizza (Doughnut).
+        $analytics['chart_status'] = [
+            'labels' => ['Entregue', 'Lido', 'Falhou', 'Aguardando Entrega'],
+            'data' => [
+                $analytics['delivered_count'] - $analytics['read_count'],
+                $analytics['read_count'],
+                $analytics['failed_count'],
+                $analytics['sent_count'] - $analytics['delivered_count'],
+            ],
+        ];
+
+        // 2. Prepara os dados para o gráfico de linha do tempo.
+        $readData = $campaign->campaignContacts()
+            ->whereNotNull('read_at')
+            ->select(DB::raw('DATE(read_at) as date'), DB::raw('count(*) as total'))
+            ->groupBy('date')
+            ->orderBy('date', 'asc')
+            ->get()
+            ->pluck('total', 'date');
+
+        $analytics['chart_read_timeline'] = [
+            'labels' => $readData->keys(),
+            'data' => $readData->values(),
+        ];
+
+        // 3. Adiciona a lista paginada de contatos da campanha.
+        $analytics['contacts'] = $campaign->campaignContacts()
+            ->with('contact:id,name,phone_number') // Carrega apenas os campos necessários
+            ->orderBy('created_at', 'asc') // Ordena por ordem de envio
+            ->paginate(20); // Pagina o resultado
+
+        return $analytics;
     }
 
     private function getFormattedMessageBody(Campaign $campaign, array $personalizedParams): ?string

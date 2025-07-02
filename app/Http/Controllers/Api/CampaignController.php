@@ -411,5 +411,21 @@ class CampaignController extends Controller
 
         return response()->json(['success' => true, 'contacts' => $contacts]);
     }
+
+    public function getReportData(Campaign $campaign): JsonResponse
+    {
+        // Verifica a propriedade da campanha
+        if ($campaign->user_id !== auth()->id()) {
+            return response()->json(['success' => false, 'message' => 'Acesso negado.'], 403);
+        }
+
+        // Chama o serviço para obter e processar os dados do relatório
+        $reportData = $this->campaignService->getCampaignReportData($campaign);
+
+        return response()->json([
+            'success' => true,
+            'report' => $reportData,
+        ]);
+    }
 }
 

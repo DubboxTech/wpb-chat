@@ -101,6 +101,8 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/{campaign}/analytics', [CampaignController::class, 'analytics'])->name('api.campaigns.analytics');
 
         Route::get('/{campaign}/contacts', [CampaignController::class, 'getCampaignContacts'])->name('api.campaigns.contacts');
+
+        Route::get('/{campaign}/report', [CampaignController::class, 'getReportData'])->name('api.campaigns.report');
     });
 
     Route::get('/whatsapp-accounts', [App\Http\Controllers\Api\CampaignController::class, 'accounts'])->name('api.whatsapp-accounts.index');

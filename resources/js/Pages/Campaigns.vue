@@ -44,10 +44,17 @@
           </div>
         </div>
         <div class="px-6 py-3 bg-gray-50 border-t flex justify-end space-x-3">
+          <Link
+              v-if="campaign.status === 'completed'"
+              :href="route('campaigns.report', campaign.id)"
+              class="text-sm font-medium text-purple-600 hover:text-purple-700"
+            >
+              Ver Relatório
+            </Link>
           <button @click="performAction('pause', campaign)" v-if="campaign.status === 'running'" class="text-sm font-medium text-yellow-600 hover:text-yellow-700">Pausar</button>
           <button @click="performAction('resume', campaign)" v-if="campaign.status === 'paused'" class="text-sm font-medium text-green-600 hover:text-green-700">Retomar</button>
           <button @click="performAction('start', campaign)" v-if="['draft', 'scheduled'].includes(campaign.status)" class="text-sm font-medium text-green-600 hover:text-green-700">Iniciar Agora</button>
-          <button @click="openModal(campaign)" class="text-sm font-medium text-blue-600 hover:text-blue-700">Editar</button>
+          <button @click="openModal(campaign)" class="text-sm font-medium text-blue-600 hover:text-blue-700" v-if="campaign.status !== 'completed'">Editar</button>
           <button @click="performAction('delete', campaign)" v-if="['draft', 'completed', 'cancelled'].includes(campaign.status)" class="text-sm font-medium text-red-600 hover:text-red-700">Excluir</button>
         </div>
       </div>

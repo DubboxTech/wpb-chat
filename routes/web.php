@@ -11,7 +11,6 @@ use App\Http\Controllers\AiTrainingController;
 use App\Http\Controllers\SettingsController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\ContactController;
-
 /*
 |--------------------------------------------------------------------------
 | Web Routes
@@ -47,6 +46,8 @@ Route::middleware(['auth'])->group(function () {
     Route::post('/contacts', [ContactController::class, 'store'])->name('contacts.store');
     Route::put('/contacts/{contact}', [ContactController::class, 'update'])->name('contacts.update');
     Route::delete('/contacts/{contact}', [ContactController::class, 'destroy'])->name('contacts.destroy');
+
+    Route::get('/campaigns/{campaign}/report', [CampaignController::class, 'report'])->name('campaigns.report');
 
     // Rota para fazer logout
     Route::post('/logout', function (Request $request) {
