@@ -537,4 +537,33 @@ class WhatsAppBusinessService
 
         return null;
     }
+
+    /**
+     * **MÉTODO CORRIGIDO**
+     * Envia o indicador de "a escrever..." no contexto de uma mensagem recebida.
+     *
+     * @param string $to O número do destinatário.
+     * @param string $replyingToMessageId O ID da mensagem à qual estamos a "responder".
+     */
+    public function sendTypingIndicator(string $to, string $replyingToMessageId): array
+    {
+        if (!$this->account) {
+            throw new Exception('Conta do WhatsApp não configurada');
+        }
+
+        $payload = [
+            'messaging_product' => 'whatsapp',
+            'to' => $this->formatPhoneNumber($to),
+            'type' => 'action',
+            'action' => [
+                'name' => 'typing_on'
+            ],
+            // **PONTO CRÍTICO DA CORREÇÃO**: Adiciona o contexto da mensagem.
+            'context' => [
+                'message_id' => $replyingToMessageId
+            ]
+        ];
+
+        return $this->sendMessagePayload($payload);
+    }
 }

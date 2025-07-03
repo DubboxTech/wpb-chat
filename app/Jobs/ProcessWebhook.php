@@ -75,7 +75,7 @@ class ProcessWebhook implements ShouldQueue
 
         $contact = WhatsAppContact::updateOrCreate(
             ['phone_number' => $messageData['from']],
-            ['name' => $contactData['profile']['name'] ?? $messageData['from']]
+            ['name' => $contactData['profile']['name'] ?? $messageData['from'], 'tags' => ['producao']]
         );
 
         [$conversation, $is_new] = $this->getOrCreateConversation($account, $contact);

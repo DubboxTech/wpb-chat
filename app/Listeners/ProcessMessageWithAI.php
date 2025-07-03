@@ -4,6 +4,7 @@ namespace App\Listeners;
 
 use App\Events\WhatsAppMessageReceived;
 use App\Services\Chatbot\StatefulChatbotService;
+use App\Services\WhatsApp\WhatsAppBusinessService;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Support\Facades\Log;
@@ -13,10 +14,14 @@ class ProcessMessageWithAI implements ShouldQueue
     use InteractsWithQueue;
 
     protected StatefulChatbotService $chatbotService;
+    protected WhatsAppBusinessService $whatsappService;
 
-    public function __construct(StatefulChatbotService $chatbotService)
-    {
+    public function __construct(
+        StatefulChatbotService $chatbotService,
+        WhatsAppBusinessService $whatsappService
+    ) {
         $this->chatbotService = $chatbotService;
+        $this->whatsappService = $whatsappService;
     }
 
     /**
@@ -33,13 +38,25 @@ class ProcessMessageWithAI implements ShouldQueue
         }
 
         try {
+            // **LÓGICA CORRIGIDA**
+            // Garante que temos um whatsapp_message_id para usar no contexto.
+            if ($message->whatsapp_message_id) {
+                // Define a conta e envia o indicador "typing_on" com o contexto correto.
+                $this->whatsappService->setAccount($conversation->whatsappAccount);
+                $this->whatsappService->sendTypingIndicator(
+                    $conversation->contact->phone_number,
+                    $message->whatsapp_message_id // Passa o ID da mensagem recebida
+                );
+            }
+
             Log::info('Processing message with Stateful Chatbot Service', [
                 'conversation_id' => $conversation->id,
                 'message_id' => $message->id,
-                'is_new_conversation' => $isNewConversation, // Log para debugging
             ]);
+            
+            // Pausa opcional para garantir que o indicador seja visível antes da resposta.
+            sleep(rand(1, 2));
 
-            // **MUDANÇA AQUI**: Passa o terceiro argumento para o handle.
             $this->chatbotService->handle($conversation, $message, $isNewConversation);
 
         } catch (\Exception $e) {
