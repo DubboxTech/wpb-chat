@@ -116,25 +116,31 @@ Devolva um JSON com a seguinte estrutura:
   "contains_pii": boolean,
   "pii_type": "cpf" | "rg" | "cnh" | "outro" | null,
   "cep_detected": string | null,
-  "intent": "df_social" | "df_sem_miseria" | "restaurantes_comunitarios" | "prato_cheio" | "cartao_gas" | "auxilio_natalidade" | "auxilio_funeral" | "auxilio_vulnerabilidade" | "acessuas_trabalho" | "projeto_warao" | "bolsa_familia" | "vale_gas_nacional" | "tarifa_social_energia" | "bpc" | "cadunico" | "unidades_atendimento" | "agendar_cras" | "info_sedes" | "informacoes_gerais" | "transferir_atendente" | "saudacao_despedida" | "nao_entendido"
+  "intent": "bolsa_familia" | "df_social" | "cartao_gas_df" | "bpc" | "morar_bem" | "isencao_concurso" | "fomento_rural" | "tarifa_social_agua" | "carteira_idoso" | "previdencia_dona_de_casa" | "id_jovem" | "credito_fundiario" | "reforma_agraria" | "internet_brasil" | "vale_gas_nacional" | "auxilio_inclusao" | "bpc_na_escola" | "pe_de_meia" | "dignidade_menstrual" | "servico_convivencia" | "prato_cheio" | "unidades_atendimento" | "agendar_cras" | "info_sedes" | "informacoes_gerais" | "transferir_atendente" | "saudacao_despedida" | "nao_entendido"
 }
 
 Diretrizes de Mapeamento de Intenção:
-- "DF Social": `df_social`
-- "DF Sem Miséria": `df_sem_miseria`
-- "Restaurante comunitário", "comida barata", "almoço por 2 reais": `restaurantes_comunitarios`
-- "Prato Cheio": `prato_cheio`
-- "Cartão Gás" ou "auxílio gás do DF": `cartao_gas`
-- "Auxílio Natalidade", "ajuda para recém-nascido": `auxilio_natalidade`
-- "Auxílio Funeral", "ajuda com enterro": `auxilio_funeral`
-- "Auxílio por calamidade", "ajuda por despejo ou incêndio": `auxilio_vulnerabilidade`
-- "Acessuas", "curso", "emprego": `acessuas_trabalho`
-- "Warao", "ajuda para refugiados": `projeto_warao`
 - "Bolsa Família": `bolsa_familia`
-- "Vale-Gás" (nacional): `vale_gas_nacional`
-- "Conta de luz com desconto", "tarifa de energia": `tarifa_social_energia`
-- "BPC", "LOAS", "benefício para idoso ou pessoa com deficiência": `bpc`
-- "Cadastro Único", "CadÚnico", "como me cadastrar": `cadunico`
+- "DF Social": `df_social`
+- "Cartão Gás" (do DF): `cartao_gas_df`
+- "BPC", "LOAS": `bpc`
+- "Morar Bem", "casa própria": `morar_bem`
+- "Isenção de taxa de concurso": `isencao_concurso`
+- "Fomento Rural", "ajuda para produtor rural": `fomento_rural`
+- "Tarifa Social de Água", "conta de água com desconto": `tarifa_social_agua`
+- "Carteira da Pessoa Idosa", "carteirinha do idoso": `carteira_idoso`
+- "Aposentadoria de dona de casa", "previdência para dona de casa": `previdencia_dona_de_casa`
+- "ID Jovem", "identidade jovem": `id_jovem`
+- "Crédito Fundiário", "PNCF": `credito_fundiario`
+- "Reforma Agrária": `reforma_agraria`
+- "Internet Brasil", "chip com internet de graça": `internet_brasil`
+- "Auxílio Gás dos Brasileiros", "Vale-Gás Nacional": `vale_gas_nacional`
+- "Auxílio-Inclusão": `auxilio_inclusao`
+- "BPC na Escola": `bpc_na_escola`
+- "Pé-de-Meia", "poupança ensino médio": `pe_de_meia`
+- "Dignidade Menstrual", "absorvente de graça": `dignidade_menstrual`
+- "Serviço de Convivência", "fortalecimento de vínculos", "SCFV": `servico_convivencia`
+- "Prato Cheio": `prato_cheio`
 - "Endereço do CRAS", "onde fica o CREAS": `unidades_atendimento`
 - "Agendar no CRAS", "marcar atendimento": `agendar_cras`
 - "O que é a Sedes", "qual o trabalho da secretaria": `info_sedes`

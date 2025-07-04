@@ -212,6 +212,44 @@ class StatefulChatbotService
                 $callToAction = "\n\nPosso ajudar a encontrar uma unidade ou quer saber de outro programa?";
                 break;
 
+            // -- NOVAS INTENÇÕES --
+            case 'morar_bem':
+                $responseText = "O programa *Morar Bem* é coordenado pela CODHAB, não pela SEDES. Ele busca facilitar o acesso à moradia. Para se inscrever ou obter informações, você deve procurar diretamente a CODHAB ou o site oficial deles.";
+                break;
+            case 'isencao_concurso':
+                $responseText = "Sim, pessoas inscritas no CadÚnico e com baixa renda podem ter direito à *isenção da taxa de inscrição em concursos públicos* federais e distritais. A solicitação é feita diretamente no site da banca organizadora do concurso, utilizando seu número do NIS.";
+                break;
+            case 'fomento_rural':
+                $responseText = "O programa de *Fomento às Atividades Produtivas Rurais* oferece um apoio financeiro para pequenos produtores rurais investirem em seus projetos. Para saber mais sobre os critérios, o ideal é procurar a Emater-DF ou uma unidade do CRAS.";
+                break;
+            case 'tarifa_social_agua':
+                $responseText = "A *Tarifa Social de Água e Esgoto* é um desconto na conta de água para famílias de baixa renda inscritas no CadÚnico. Para solicitar, você deve entrar em contato com a CAESB com seus documentos e o número do NIS em mãos.";
+                break;
+            case 'carteira_idoso':
+                $responseText = "A *Carteira da Pessoa Idosa* é um documento que permite a idosos de baixa renda ter acesso a viagens interestaduais gratuitas ou com desconto. Você pode solicitar a sua no CRAS mais próximo!";
+                break;
+            case 'previdencia_dona_de_casa':
+                $responseText = "A *contribuição previdenciária reduzida* para pessoas de família de baixa renda que se dedicam exclusivamente ao trabalho doméstico (donas de casa) é um direito! A alíquota é de 5% sobre o salário mínimo. A inscrição é feita junto ao INSS, e o CRAS pode te orientar sobre como proceder.";
+                break;
+            case 'id_jovem':
+                $responseText = "O *ID Jovem* é um documento gratuito para jovens de 15 a 29 anos de baixa renda, que garante benefícios como meia-entrada em eventos e vagas gratuitas ou com desconto em viagens. Você pode emitir o seu pelo aplicativo ID Jovem ou em um CRAS.";
+                break;
+            case 'vale_gas_nacional':
+                $responseText = "O *Auxílio Gás dos Brasileiros*, também conhecido como Vale-Gás Nacional, é um benefício do Governo Federal pago a cada dois meses. Ele é destinado a famílias inscritas no CadÚnico ou que recebem o BPC.";
+                break;
+            case 'auxilio_inclusao':
+                $responseText = "O *Auxílio-Inclusão* é um benefício para pessoas com deficiência que recebem o BPC e começam a trabalhar com carteira assinada. Ele é um incentivo para a inclusão no mercado de trabalho. Para mais detalhes, o ideal é procurar o INSS.";
+                break;
+            case 'pe_de_meia':
+                $responseText = "O *Pé-de-Meia* é um programa de incentivo financeiro para estudantes do ensino médio de escolas públicas. O objetivo é ajudar na permanência e conclusão dos estudos. A gestão do programa é feita pelo Ministério da Educação.";
+                break;
+            case 'dignidade_menstrual':
+                 $responseText = "O programa *Dignidade Menstrual* distribui absorventes gratuitos para pessoas em situação de vulnerabilidade. Você pode encontrar os pontos de distribuição nas Unidades Básicas de Saúde (UBS) e em alguns CRAS.";
+                 break;
+            case 'servico_convivencia':
+                $responseText = "O *Serviço de Convivência e Fortalecimento de Vínculos (SCFV)* oferece atividades em grupo (culturais, esportivas, etc.) para crianças, adolescentes, adultos e idosos, buscando fortalecer os laços familiares e comunitários. Procure o CRAS da sua região para saber quais grupos estão disponíveis!";
+                break;
+
             case 'info_sedes':
             case 'informacoes_gerais':
             case 'saudacao_despedida':
