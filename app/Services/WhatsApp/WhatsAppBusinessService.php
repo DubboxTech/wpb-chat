@@ -554,15 +554,17 @@ class WhatsAppBusinessService
         $payload = [
             'messaging_product' => 'whatsapp',
             'to' => $this->formatPhoneNumber($to),
-            'type' => 'action',
-            'action' => [
-                'name' => 'typing_on'
+            "status" => "read",
+            'typing_indicator' => [
+                'type' => 'text'
             ],
-            // **PONTO CRÍTICO DA CORREÇÃO**: Adiciona o contexto da mensagem.
-            'context' => [
-                'message_id' => $replyingToMessageId
-            ]
+            'message_id' => $replyingToMessageId
         ];
+
+        Log::info('Sending typing indicator', [
+            'to' => $to,
+            'replying_to_message_id' => $replyingToMessageId
+        ]);
 
         return $this->sendMessagePayload($payload);
     }

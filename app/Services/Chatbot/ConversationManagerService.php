@@ -45,7 +45,14 @@ class ConversationManagerService
             // Determina se a resposta deve ser em áudio
             $respondWithAudio = $this->shouldRespondWithAudio($conversation);
             
-            $closingMessage = "Olá! Parece que ficámos sem interagir por um tempo. Para manter tudo organizado, estou a encerrar esta conversa por agora. Se precisar de mais alguma coisa, é só chamar! 👋";
+            $closingMessages = [
+                "Oi! Parece que ficamos um tempinho sem bater papo. Vou fechar o chat por enquanto para manter tudo organizado. Se precisar, é só chamar! 😊",
+                "Olá! Notei que deu uma pausa por aqui, então vou encerrar a conversa por ora. Quando quiser, é só chamar e a gente continua! 👋",
+                "E aí! Já faz um tempinho sem mensagens, então vou pausar esta conversa. Qualquer coisa, é só me chamar, tá? Até logo! 😉",
+                "Oi! Vou encerrar por enquanto para manter a casa em ordem. Se surgir qualquer dúvida, manda mensagem e voltamos a falar! ✨",
+            ];
+            
+            $closingMessage = $closingMessages[array_rand($closingMessages)];
             
             // Envia a mensagem de encerramento
             $this->chatbotService->sendResponse($conversation, $closingMessage, $respondWithAudio);
