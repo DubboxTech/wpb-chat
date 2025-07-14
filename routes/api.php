@@ -9,6 +9,7 @@ use App\Http\Controllers\Api\CampaignController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\ConversationController;
 use App\Http\Controllers\Api\MediaController;
+use App\Http\Controllers\Api\TemplateEditorController;
 
 /*
 |--------------------------------------------------------------------------
@@ -126,6 +127,12 @@ Route::middleware('auth:sanctum')->group(function () {
     });
 
     Route::post('/media/upload', [MediaController::class, 'upload'])->name('media.upload');
+
+    Route::prefix('templates')->group(function () {
+        Route::get('/', [TemplateEditorController::class, 'index'])->name('api.templates.index');
+        Route::post('/', [TemplateEditorController::class, 'store'])->name('api.templates.store');
+        Route::delete('/{templateName}', [TemplateEditorController::class, 'destroy'])->name('api.templates.destroy');
+    });
 });
 
 // Fallback para rotas não encontradas na API

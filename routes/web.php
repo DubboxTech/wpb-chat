@@ -56,6 +56,10 @@ Route::middleware(['auth'])->group(function () {
         $request->session()->regenerateToken();
         return redirect('/');
     })->name('logout');
+
+    Route::get('/templates/editor', function () {
+        return Inertia::render('Templates/Editor');
+    })->name('templates.editor');
 });
 
 // --- ROTAS DE AUTENTICAÇÃO PÚBLICAS ---

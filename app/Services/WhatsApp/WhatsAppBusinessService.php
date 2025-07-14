@@ -198,6 +198,36 @@ class WhatsAppBusinessService
         return $result;
     }
 
+    public function getAllTemplates(): array
+    {
+        if (!$this->account) {
+            throw new Exception('WhatsApp account not configured');
+        }
+
+
+        try {
+            // Adicionamos 'status' e 'category' aos fields para garantir que a API sempre os retorne.
+            $url = "{$this->baseUrl}/{$this->account->business_account_id}/message_templates";
+        
+            $response = Http::withToken($this->account->access_token)->get($url, [
+                'fields' => 'name,status,category,components,language',
+                'limit' => 100 // Aumente se tiver mais templates
+            ]);
+
+            $result = $this->handleResponse($response);
+
+            Log::info('Fetched templates from WhatsApp API', [
+                'account_id' => $this->account->id,
+                'count' => $result['data']['data']
+            ]);
+
+            return $result['data'];
+        } catch (Exception $e) {
+            Log::error('Error fetching templates from WhatsApp API: ' . $e->getMessage());
+            return ['success' => false, 'message' => 'An unexpected error occurred.'];
+        }
+    }
+
     /**
      * Create message template.
      */
@@ -568,4 +598,6 @@ class WhatsAppBusinessService
 
         return $this->sendMessagePayload($payload);
     }
+
+    
 }
