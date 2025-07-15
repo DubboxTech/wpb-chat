@@ -381,6 +381,12 @@ class WhatsAppBusinessService
      */
     public function sendTemplateMessage(string $to, string $templateName, string $language = 'pt_BR', array $parameters = []): array
     {
+        Log::info('Sending template message', [
+            'to' => $to,
+            'template_name' => $templateName,
+            'language' => $language,
+            'parameters' => $parameters
+        ]);
         return $this->sendMessage($to, 'template', [
             'template_name' => $templateName,
             'language_code' => $language,
@@ -410,7 +416,8 @@ class WhatsAppBusinessService
                 Log::error('WhatsApp message failed', [
                     'account_id' => $this->account->id,
                     'to' => $payload['to'],
-                    'error' => $result['message']
+                    'error' => $result['message'],
+                    'payload' => $payload
                 ]);
             }
 
@@ -461,6 +468,50 @@ class WhatsAppBusinessService
         return $phone;
     }
 
+    /**
+     * --- NOVO MÉTODO ADICIONADO ---
+     * "Atalho" específico para enviar um Template de Fluxo (Flow Template).
+     *
+     * @param string $to O número do destinatário.
+     * @param string $templateName O nome do template.
+     * @param string $language O código do idioma (ex: 'en_US').
+     * @param string $flowToken O token específico do fluxo a ser iniciado.
+     * @param array $bodyParameters Parâmetros para o corpo do template.
+     * @param array|null $headerParameters Parâmetros para o cabeçalho, se houver.
+     * @return array
+     */
+    public function sendFlowTemplateMessage(string $to, string $templateName, string $language, string $flowToken, array $bodyParameters = [], ?array $headerParameters = null): array
+    {
+        // Constrói a estrutura de parâmetros para o corpo e cabeçalho
+        $parameters = [];
+        if ($headerParameters) {
+            $parameters['header'] = $headerParameters;
+        }
+        if ($bodyParameters) {
+            $parameters['body'] = $bodyParameters;
+        }
+
+        // Adiciona a estrutura específica e obrigatória para o botão do fluxo
+        $parameters['button'] = [
+            'sub_type' => 'flow',
+            'index' => '0',
+            'parameters' => [
+                [
+                    'type' => 'action',
+                    'action' => [
+                        'flow_token' => $flowToken,
+                    ],
+                ],
+            ],
+        ];
+
+        return $this->sendMessage($to, 'template', [
+            'template_name' => $templateName,
+            'language_code' => $language,
+            'parameters' => $parameters,
+        ]);
+    }
+
     protected function buildTemplateComponents(array $parameters): array
     {
         $components = [];
@@ -476,6 +527,16 @@ class WhatsAppBusinessService
             $components[] = [
                 'type' => 'body',
                 'parameters' => $parameters['body']
+            ];
+        }
+
+        // Adicionado para suportar o botão do fluxo
+        if (isset($parameters['button'])) {
+            $components[] = [
+                'type' => 'button',
+                'sub_type' => $parameters['button']['sub_type'],
+                'index' => $parameters['button']['index'],
+                'parameters' => $parameters['button']['parameters']
             ];
         }
 

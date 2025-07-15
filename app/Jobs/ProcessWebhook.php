@@ -14,22 +14,28 @@ use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
 class ProcessWebhook implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    protected $payload;
+    protected array $payload;
 
     public function __construct(array $payload)
     {
         $this->payload = $payload;
     }
 
+    /* -----------------------------------------------------------------
+       MANAGER
+    ----------------------------------------------------------------- */
+
     public function handle(): void
     {
         Log::info('Processing webhook job.', ['payload' => $this->payload]);
+
         foreach ($this->payload['entry'] as $entry) {
             foreach ($entry['changes'] as $change) {
                 if ($change['field'] === 'messages') {
@@ -41,139 +47,221 @@ class ProcessWebhook implements ShouldQueue
 
     protected function processChange(array $change): void
     {
-        $value = $change['value'];
+        $value   = $change['value'];
         $account = WhatsAppAccount::where('phone_number_id', $value['metadata']['phone_number_id'])->first();
+
         if (!$account) {
-            Log::warning('WhatsApp Account not found in webhook.', ['phone_id' => $value['metadata']['phone_number_id']]);
+            Log::warning('WhatsApp Account not found.', [
+                'phone_id' => $value['metadata']['phone_number_id'],
+            ]);
             return;
         }
 
+        // Mensagens
         if (isset($value['messages'])) {
             foreach ($value['messages'] as $messageData) {
                 $this->processIncomingMessage($account, $messageData, $value['contacts'][0] ?? []);
             }
         }
-        
+
+        // Status
         if (isset($value['statuses'])) {
             foreach ($value['statuses'] as $statusData) {
-                $this->processMessageStatus($statusData);
+                $this->processMessageStatus($account, $statusData);
             }
         }
     }
 
-    protected function processIncomingMessage(WhatsAppAccount $account, array $messageData, array $contactData): void
-    {
-        // **INÍCIO DA CORREÇÃO**
-        // Apenas executa a verificação de duplicados em ambiente de produção.
-        if (app()->isProduction()) {
-            if (WhatsAppMessage::where('whatsapp_message_id', $messageData['id'])->exists()) {
-                Log::info('Skipping already processed message in production.', ['whatsapp_message_id' => $messageData['id']]);
-                return;
-            }
+    /* -----------------------------------------------------------------
+       MENSAGENS ENTRANTES
+    ----------------------------------------------------------------- */
+
+    protected function processIncomingMessage(
+        WhatsAppAccount $account,
+        array           $messageData,
+        array           $contactData
+    ): void {
+        // Evita duplicados nos servidores de produção
+        if (app()->isProduction() &&
+            WhatsAppMessage::where('whatsapp_message_id', $messageData['id'])->exists()) {
+            Log::info('Skipping duplicated message.', ['whatsapp_message_id' => $messageData['id']]);
+            return;
         }
-        // **FIM DA CORREÇÃO**
 
         $contact = WhatsAppContact::updateOrCreate(
             ['phone_number' => $messageData['from']],
-            ['name' => $contactData['profile']['name'] ?? $messageData['from'], 'tags' => ['producao']]
+            ['name' => $contactData['profile']['name'] ?? $messageData['from']]
         );
 
-        [$conversation, $is_new] = $this->getOrCreateConversation($account, $contact);
-        
-        $messageType = $messageData['type'];
-        $content = $this->extractMessageContent($messageData, $messageType);
-        $media = $this->extractMediaData($messageData, $messageType);
+        [$conversation, $isNew] = $this->getOrCreateConversation($account, $contact);
+
+        $type    = $messageData['type'];
+        $content = $this->extractMessageContent($messageData, $type);
+        $media   = $this->extractMediaData($messageData, $type);
 
         $message = $conversation->messages()->create([
-            'contact_id' => $contact->id,
-            'message_id' => Str::uuid(),
+            'contact_id'          => $contact->id,
+            'message_id'          => Str::uuid(),
             'whatsapp_message_id' => $messageData['id'],
-            'direction' => 'inbound',
-            'type' => $messageType,
-            'status' => 'delivered',
-            'content' => $content,
-            'media' => $media,
-            'metadata' => $messageData,
-            'created_at' => now()->createFromTimestamp($messageData['timestamp']),
+            'direction'           => 'inbound',
+            'type'                => $type,
+            'status'              => 'delivered',
+            'content'             => $content,
+            'media'               => $media,
+            'metadata'            => $messageData,
+            'created_at'          => now()->createFromTimestamp($messageData['timestamp']),
         ]);
-        
+
+        // Salva o JSON bruto
+        $this->saveRawPayload(
+            $account,
+            $contact->phone_number,
+            $messageData['id'],
+            $messageData
+        );
+
         if ($media && isset($media['id'])) {
-            Log::info('Dispatching job to download media.', ['message_id' => $message->id, 'media_id' => $media['id']]);
+            Log::info('Dispatching media download.', [
+                'message_id' => $message->id,
+                'media_id'   => $media['id'],
+            ]);
             DownloadMedia::dispatch($message->id, $media['id'], $account->id)->onQueue('default');
         }
 
-        $conversation->update(['last_message_at' => $message->created_at, 'unread_count' => $conversation->unread_count + 1]);
-        
-        event(new WhatsAppMessageReceived($message, $is_new));
+        $conversation->update([
+            'last_message_at' => $message->created_at,
+            'unread_count'    => $conversation->unread_count + 1,
+        ]);
+
+        event(new WhatsAppMessageReceived($message, $isNew));
     }
+
+    /* -----------------------------------------------------------------
+       STATUS (delivered/read/etc.)
+    ----------------------------------------------------------------- */
+
+    protected function processMessageStatus(
+        WhatsAppAccount $account,
+        array           $statusData
+    ): void {
+        $message = WhatsAppMessage::where('whatsapp_message_id', $statusData['id'])->first();
+        if (!$message) {
+            return;
+        }
+
+        $message->update(['status' => $statusData['status']]);
+        event(new WhatsAppMessageStatusUpdated($message, $statusData['status']));
+
+        // Salva o status bruto
+        $this->saveRawPayload(
+            $account,
+            $message->contact->phone_number ?? 'unknown_contact',
+            "{$statusData['id']}_status",
+            $statusData
+        );
+    }
+
+    /* -----------------------------------------------------------------
+       HELPERS
+    ----------------------------------------------------------------- */
 
     private function extractMessageContent(array $data, string $type): ?string
     {
         return match ($type) {
-            'text' => $data['text']['body'] ?? null,
-            'image', 'video', 'document' => $data[$type]['caption'] ?? null,
-            'location' => "{$data['location']['latitude']},{$data['location']['longitude']}",
-            default => null,
+            'text'                     => $data['text']['body']          ?? null,
+            'image', 'video', 'document' => $data[$type]['caption']       ?? null,
+            'location'                 => "{$data['location']['latitude']},{$data['location']['longitude']}",
+            default                    => null,
         };
     }
 
     private function extractMediaData(array $data, string $type): ?array
     {
-        $mediaTypes = ['image', 'video', 'audio', 'document', 'sticker'];
-        if (!in_array($type, $mediaTypes)) return null;
-
-        $mediaData = $data[$type];
-        return [
-            'id' => $mediaData['id'] ?? null,
-            'mime_type' => $mediaData['mime_type'] ?? null,
-        ];
-    }
-    
-    protected function getOrCreateConversation(WhatsAppAccount $account, WhatsAppContact $contact): array
-    {
-        // 1. Tenta encontrar a conversa mais recente para o contato, independentemente do status.
-        $latestConversation = WhatsAppConversation::where('contact_id', $contact->id)
-            ->where('whatsapp_account_id', $account->id)
-            ->latest('updated_at') // Ordena pela mais recente
-            ->first();
-
-        // 2. Se uma conversa existir
-        if ($latestConversation) {
-            // Se estiver fechada, reabre e reseta o estado.
-            if ($latestConversation->status === 'closed') {
-                $latestConversation->update([
-                    'status' => 'open',
-                    'is_ai_handled' => true, // Devolve para a IA
-                    'chatbot_state' => null, // Limpa o estado do chatbot
-                    'assigned_user_id' => null, // Remove o agente atribuído
-                ]);
-                Log::info('Reopening closed conversation.', ['conversation_id' => $latestConversation->id]);
-                return [$latestConversation, true]; // Retorna como se fosse "nova" para o fluxo
-            }
-            
-            // Se estiver aberta ou pendente, apenas a retorna.
-            return [$latestConversation, false];
+        if (!in_array($type, ['image', 'video', 'audio', 'document', 'sticker'])) {
+            return null;
         }
 
-        // 3. Se nenhuma conversa existir, cria uma nova.
-        $newConversation = WhatsAppConversation::create([
-            'conversation_id' => Str::uuid(),
-            'whatsapp_account_id' => $account->id,
-            'contact_id' => $contact->id,
-            'status' => 'open',
-            'is_ai_handled' => true,
-            'chatbot_state' => null,
-        ]);
-        
-        Log::info('Creating new conversation.', ['conversation_id' => $newConversation->id]);
-        return [$newConversation, true];
+        $media = $data[$type];
+        return [
+            'id'        => $media['id']        ?? null,
+            'mime_type' => $media['mime_type'] ?? null,
+        ];
     }
 
-    protected function processMessageStatus(array $statusData): void
-    {
-        $message = WhatsAppMessage::where('whatsapp_message_id', $statusData['id'])->first();
-        if (!$message) return;
-        $message->update(['status' => $statusData['status']]);
-        event(new WhatsAppMessageStatusUpdated($message, $statusData['status']));
+    protected function getOrCreateConversation(
+        WhatsAppAccount $account,
+        WhatsAppContact $contact
+    ): array {
+        $latest = WhatsAppConversation::where('contact_id', $contact->id)
+            ->where('whatsapp_account_id', $account->id)
+            ->latest('updated_at')
+            ->first();
+
+        // Reabrir conversa fechada
+        if ($latest) {
+            if ($latest->status === 'closed') {
+                $latest->update([
+                    'status'           => 'open',
+                    'is_ai_handled'    => true,
+                    'chatbot_state'    => null,
+                    'assigned_user_id' => null,
+                ]);
+                Log::info('Reopened conversation.', ['conversation_id' => $latest->id]);
+                return [$latest, true];
+            }
+
+            return [$latest, false];
+        }
+
+        // Nova conversa
+        $new = WhatsAppConversation::create([
+            'conversation_id'     => Str::uuid(),
+            'whatsapp_account_id' => $account->id,
+            'contact_id'          => $contact->id,
+            'status'              => 'open',
+            'is_ai_handled'       => true,
+            'chatbot_state'       => null,
+        ]);
+
+        Log::info('Created new conversation.', ['conversation_id' => $new->id]);
+        return [$new, true];
+    }
+
+    /* -----------------------------------------------------------------
+       GRAVAÇÃO DO PAYLOAD
+    ----------------------------------------------------------------- */
+
+    protected function saveRawPayload(
+        WhatsAppAccount $account,
+        string          $contactPhone,
+        string          $messageId,
+        array           $data
+    ): void {
+        try {
+            $path = sprintf(
+                'webhooks/whatsapp/%d/%s/%s/%s.json',
+                $account->business_account_id,                 // account_id
+                $account->phone_number_id,    // account_numerid
+                $contactPhone,                // contactswa_id
+                $messageId                    // messageid
+            );
+
+            Storage::disk('local')->makeDirectory(dirname($path));
+
+            Storage::disk('local')->put(
+                $path,
+                json_encode(
+                    $data,
+                    JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE
+                )
+            );
+
+            Log::info('Raw payload stored.', ['file' => $path]);
+        } catch (\Throwable $e) {
+            Log::warning('Failed to store raw payload.', [
+                'error'      => $e->getMessage(),
+                'message_id' => $messageId,
+            ]);
+        }
     }
 }

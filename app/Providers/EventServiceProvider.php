@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\Event;
 
 use App\Events\WhatsAppMessageReceived;
 use App\Listeners\ProcessMessageWithAI;
+use App\Listeners\ProcessFlowResponse; 
 
 class EventServiceProvider extends ServiceProvider
 {
@@ -23,6 +24,7 @@ class EventServiceProvider extends ServiceProvider
         ],
         WhatsAppMessageReceived::class => [
             ProcessMessageWithAI::class,
+            ProcessFlowResponse::class,
         ],
     ];
 

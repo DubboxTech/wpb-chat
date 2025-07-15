@@ -31,33 +31,47 @@ class ProcessMessageWithAI implements ShouldQueue
     {
         $message = $event->message;
         $conversation = $message->conversation;
-        $isNewConversation = $event->isNewConversation; // <-- OBTÉM O NOVO DADO
 
-        if ($message->type === 'audio' || $message->direction !== 'inbound' || !$conversation->is_ai_handled) {
+        // --- CORREÇÃO #1: CLÁUSULA DE GUARDA NO TOPO ---
+        // Esta é a verificação MAIS IMPORTANTE. Ela precisa ser a primeira coisa no método.
+        // Se a mensagem é uma resposta de Flow, este listener para imediatamente.
+        if (
+            $message->type === 'interactive'
+        ) {
+            Log::info('ProcessMessageWithAI listener is ignoring Flow reply as expected.');
+            return; // Aborta a execução para respostas de Flow.
+        }
+        
+        // As verificações existentes continuam a proteger os outros fluxos.
+        if ($message->direction !== 'inbound' || !$conversation->is_ai_handled) {
             return;
         }
 
         try {
-            // **LÓGICA CORRIGIDA**
-            // Garante que temos um whatsapp_message_id para usar no contexto.
             if ($message->whatsapp_message_id) {
-                // Define a conta e envia o indicador "typing_on" com o contexto correto.
                 $this->whatsappService->setAccount($conversation->whatsappAccount);
+                $this->whatsappService->markAsRead($message->whatsapp_message_id);
                 $this->whatsappService->sendTypingIndicator(
                     $conversation->contact->phone_number,
                     $message->whatsapp_message_id // Passa o ID da mensagem recebida
                 );
             }
+        } catch (\Exception $e) {
+            Log::warning('Could not mark message as read. Continuing...', [
+                'message_id' => $message->whatsapp_message_id,
+                'error' => $e->getMessage()
+            ]);
+        }
 
+        try {
             Log::info('Processing message with Stateful Chatbot Service', [
                 'conversation_id' => $conversation->id,
                 'message_id' => $message->id,
             ]);
             
-            // Pausa opcional para garantir que o indicador seja visível antes da resposta.
             sleep(rand(1, 2));
 
-            $this->chatbotService->handle($conversation, $message, $isNewConversation);
+            $this->chatbotService->handle($conversation, $message, $event->isNewConversation);
 
         } catch (\Exception $e) {
             Log::error('Stateful Chatbot processing failed', [
@@ -69,7 +83,7 @@ class ProcessMessageWithAI implements ShouldQueue
     }
 
     /**
-     * Lida com falhas no job.
+     * Lida com falhas permanentes no job.
      */
     public function failed(WhatsAppMessageReceived $event, \Throwable $exception): void
     {
@@ -78,11 +92,12 @@ class ProcessMessageWithAI implements ShouldQueue
             'exception' => $exception->getMessage(),
         ]);
 
-        // Como último recurso, escala para um humano
         $conversation = $event->message->conversation;
-        $conversation->update([
-            'status' => 'pending',
-            'is_ai_handled' => false,
-        ]);
+        if ($conversation) {
+            $conversation->update([
+                'status' => 'pending',
+                'is_ai_handled' => false,
+            ]);
+        }
     }
 }

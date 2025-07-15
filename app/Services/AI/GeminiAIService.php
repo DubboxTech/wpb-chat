@@ -108,7 +108,7 @@ class GeminiAIService
 
         return $jsonWrapper . <<<PROMPT
 Você é um sistema de classificação para o chatbot da **SEDES-DF (Secretaria de Desenvolvimento Social do Distrito Federal)**.
-Seu objetivo é identificar a intenção do usuário sobre programas sociais e serviços.
+Seu objetivo é identificar a intenção do usuário sobre programas sociais e serviços, incluindo os Restaurantes Comunitários.
 
 Devolva um JSON com a seguinte estrutura:
 {
@@ -116,10 +116,13 @@ Devolva um JSON com a seguinte estrutura:
   "contains_pii": boolean,
   "pii_type": "cpf" | "rg" | "cnh" | "outro" | null,
   "cep_detected": string | null,
-  "intent": "bolsa_familia" | "df_social" | "cartao_gas_df" | "bpc" | "morar_bem" | "isencao_concurso" | "fomento_rural" | "tarifa_social_agua" | "carteira_idoso" | "previdencia_dona_de_casa" | "id_jovem" | "credito_fundiario" | "reforma_agraria" | "internet_brasil" | "vale_gas_nacional" | "auxilio_inclusao" | "bpc_na_escola" | "pe_de_meia" | "dignidade_menstrual" | "servico_convivencia" | "prato_cheio" | "unidades_atendimento" | "agendar_cras" | "info_sedes" | "informacoes_gerais" | "transferir_atendente" | "saudacao_despedida" | "nao_entendido"
+  "intent": "bolsa_familia" | "df_social" | "cartao_gas_df" | "bpc" | "morar_bem" | "isencao_concurso" | "fomento_rural" | "tarifa_social_agua" | "carteira_idoso" | "previdencia_dona_de_casa" | "id_jovem" | "credito_fundiario" | "reforma_agraria" | "internet_brasil" | "vale_gas_nacional" | "auxilio_inclusao" | "bpc_na_escola" | "pe_de_meia" | "dignidade_menstrual" | "servico_convivencia" | "prato_cheio" | "unidades_atendimento" | "agendar_cras" | "info_sedes" | "informacoes_gerais" | "transferir_atendente" | "saudacao_despedida" | "nao_entendido" | "restaurantes_comunitarios" | "pesquisa_restaurante_comunitario",
+  "restaurante_identificado": string | null
 }
 
-Diretrizes de Mapeamento de Intenção:
+# Diretrizes de Mapeamento de Intenção:
+- **pesquisa_restaurante_comunitario**: ATIVAR se a mensagem contiver o nome (total, parcial ou com abreviação) de um dos restaurantes da lista abaixo. Preencher o campo `restaurante_identificado` com o nome da unidade.
+- **restaurantes_comunitarios**: Usar para perguntas gerais sobre os restaurantes que não mencionem uma unidade específica (ex: "quais os horários?", "quanto custa?").
 - "Bolsa Família": `bolsa_familia`
 - "DF Social": `df_social`
 - "Cartão Gás" (do DF): `cartao_gas_df`
@@ -145,7 +148,27 @@ Diretrizes de Mapeamento de Intenção:
 - "Agendar no CRAS", "marcar atendimento": `agendar_cras`
 - "O que é a Sedes", "qual o trabalho da secretaria": `info_sedes`
 
-Outras Diretrizes:
+# Lista de Restaurantes Comunitários para Pesquisa (aceitar variações e abreviações):
+- Arniqueira
+- Brazlândia
+- Ceilândia
+- Paranoá
+- Recanto das Emas
+- Estrutural
+- Riacho Fundo II
+- Santa Maria
+- São Sebastião
+- Sobradinho
+- Sol Nascente
+- Sol Nascente/Pôr do Sol
+- Samambaia
+- Itapoã
+- Gama
+- Planaltina
+- Samambaia Expansão
+- Varjão
+
+# Outras Diretrizes:
 1. {$stateDescription}
 2. Se a intenção não se encaixar em nenhuma acima mas for sobre a SEDES, use `informacoes_gerais`.
 3. CPF/RG/CNH são considerados PII. CEP NÃO é PII.

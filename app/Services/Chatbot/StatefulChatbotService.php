@@ -18,8 +18,10 @@ class StatefulChatbotService
     protected GeminiAIService $geminiService;
     protected TextToSpeechService $ttsService;
 
+    // Definição dos estados possíveis da conversa
     private const STATE_AWAITING_LOCATION = 'awaiting_location';
     private const STATE_AWAITING_APPOINTMENT_CONFIRMATION = 'awaiting_appointment_confirmation';
+    private const STATE_AWAITING_SURVEY_AGE = 'awaiting_survey_age';
 
     public function __construct(
         WhatsAppBusinessService $whatsappService,
@@ -32,16 +34,14 @@ class StatefulChatbotService
     }
 
     /**
-     * MÉTODO HANDLE ATUALIZADO:
-     * Recebe o novo parâmetro 'isNewConversation'.
+     * Ponto de entrada principal para lidar com uma nova mensagem.
      */
     public function handle(WhatsAppConversation $conversation, WhatsAppMessage $message, bool $isNewConversation = false): void
     {
         $respondWithAudio = ($message->type === 'audio');
 
-        // 1. Se for uma nova conversa, envia a saudação primeiro.
         if ($isNewConversation) {
-            $this->sendWelcomeMessage($conversation, $respondWithAudio);
+            $this->sendWelcomeMessage($conversation);
         }
 
         if ($message->type === 'location') {
@@ -53,25 +53,20 @@ class StatefulChatbotService
     }
     
     /**
-     * 2. NOVO MÉTODO:
-     * Envia uma mensagem de boas-vindas amigável.
+     * Envia a mensagem de boas-vindas para novas conversas.
      */
     private function sendWelcomeMessage(WhatsAppConversation $conversation): void
     {
-        // 1. Envia a mensagem de texto introdutória
         $welcomeText = "Olá! 👋 Eu sou o *SIM Social*, o assistente virtual da Secretaria de Desenvolvimento Social (SEDES-DF).\n\nPara facilitar, ouça o áudio a seguir com um resumo do que eu posso fazer por você! 👇";
         $this->sendResponse($conversation, $welcomeText, false);
 
         try {
-            // 2. Define a URL estática para o áudio de boas-vindas
             $audioUrl = 'https://whatsapp-dubbox.nyc3.digitaloceanspaces.com/audio_responses/59442778-78df-4c06-b939-a62646ef412c/0be3802b-e095-4938-909c-50763df0089f.mp3';
 
             if ($audioUrl) {
-                // 3. Envia a mensagem de áudio
                 $this->whatsappService->setAccount($conversation->whatsappAccount);
                 $response = $this->whatsappService->sendAudioMessage($conversation->contact->phone_number, $audioUrl);
 
-                // 4. Salva a mensagem de áudio enviada no histórico
                 if ($response && $response['success']) {
                     $messageData = ['type' => 'audio', 'media' => ['url' => $audioUrl]];
                     $this->saveOutboundMessage($conversation, null, $response['data'], $messageData);
@@ -85,6 +80,9 @@ class StatefulChatbotService
         }
     }
 
+    /**
+     * Processa a mensagem do usuário com base no estado atual da conversa.
+     */
     private function processState(WhatsAppConversation $conversation, WhatsAppMessage $message, bool $respondWithAudio): void
     {
         $userInput = $message->content;
@@ -100,12 +98,18 @@ class StatefulChatbotService
                 case self::STATE_AWAITING_APPOINTMENT_CONFIRMATION:
                     $this->handleAppointmentConfirmation($conversation, $userInput, $respondWithAudio);
                     return;
+                case self::STATE_AWAITING_SURVEY_AGE:
+                    $this->handleSurveyAgeResponse($conversation, $userInput, $respondWithAudio);
+                    return;
             }
         }
         
         $this->processMessageWithAI($conversation, $userInput, $respondWithAudio);
     }
     
+    /**
+     * Envia a mensagem para a IA para análise e decide o próximo passo.
+     */
     private function processMessageWithAI(WhatsAppConversation $conversation, string $userInput, bool $respondWithAudio): void
     {
         $analysis = $this->geminiService->analyzeUserMessage($conversation, $userInput);
@@ -145,9 +149,7 @@ class StatefulChatbotService
     }
 
     /**
-     * **MÉTODO ATUALIZADO**
-     * Contém a lógica de resposta para todas as intenções, com textos
-     * mais amigáveis e formatados para o WhatsApp.
+     * Executa a ação correspondente à intenção identificada pela IA.
      */
     private function executeIntent(WhatsAppConversation $conversation, array $analysis, string $userInput, bool $respondWithAudio): void
     {
@@ -158,8 +160,16 @@ class StatefulChatbotService
         $callToAction = "\n\nPosso te ajudar com mais alguma informação sobre este ou outro programa? 😊";
 
         switch ($intent) {
+            case 'pesquisa_restaurante_comunitario':
+                $restaurantName = $analysis['restaurante_identificado'] ?? 'Não identificado';
+                $this->initiateRestaurantSurveyFlow($conversation, $restaurantName);
+                return;
+
+            case 'restaurantes_comunitarios':
+                $responseText = "Claro! Os Restaurantes Comunitários são uma ótima opção! 🍽️\n\nTemos 18 unidades no DF que servem refeições completas e de qualidade por um preço super acessível. Posso te ajudar com a localização de algum deles?";
+                break;
+
             case 'agendar_cras':
-            case 'atualizar_cadastro':
             case 'unidades_atendimento':
                 $this->initiateCrasLocationFlow($conversation, $respondWithAudio);
                 return;
@@ -174,7 +184,7 @@ class StatefulChatbotService
                                 "\n\nVocê pode conferir o calendário de pagamentos e a lista de beneficiários no site oficial da Sedes-DF. 😉";
                 break;
             
-            case 'cartao_gas':
+            case 'cartao_gas_df':
                 $responseText = "Claro! O *Cartão Gás* do DF concede um auxílio de R$ 100,00 a cada dois meses para ajudar na compra do botijão de gás de 13kg. 🍳🔥" .
                                 "\n\nÉ um apoio importante para as famílias de baixa renda aqui do Distrito Federal.";
                 break;
@@ -190,72 +200,17 @@ class StatefulChatbotService
                                 "\n\nA solicitação é feita diretamente no INSS, mas o CRAS é o lugar certo para receber toda a orientação que você precisa!";
                 break;
             
-            case 'auxilio_natalidade':
-                $responseText = "Que momento especial! 👶 O *Auxílio Natalidade* é um apoio de R$ 200,00 (pago em parcela única) para ajudar com as primeiras despesas do bebê em famílias de baixa renda." .
-                                "\n\nPara solicitar, a mamãe ou o responsável deve procurar o CRAS mais próximo com seus documentos e os do recém-nascido. ✨";
-                break;
-
-            case 'auxilio_funeral':
-                $responseText = "Sinto muito pela sua perda. Para apoiar as famílias de baixa renda neste momento difícil, a SEDES oferece o *Auxílio Funeral*. O benefício pode ser um valor de R$ 415,00 ou a cobertura do serviço funerário. 🙏" .
-                                "\n\nPara solicitar, é necessário ir a um CRAS com a certidão de óbito e os documentos da família.";
-                $callToAction = "\n\nSe precisar de mais alguma orientação, estou à disposição."; // Tom mais sóbrio
-                break;
-            
-            case 'restaurantes_comunitarios':
-                $responseText = "Claro! Os *Restaurantes Comunitários* são uma ótima opção! 🍽️" .
-                                "\n\nTemos 18 unidades no DF que servem refeições completas e de qualidade por um preço super acessível, a partir de R$ 2,00. E o melhor: é aberto para *toda* a população!";
-                break;
-                
-            case 'cadunico':
-                $responseText = "O *Cadastro Único*, ou CadÚnico, é a porta de entrada para a maioria dos programas sociais dos governos Federal e do DF, como o Bolsa Família e o Prato Cheio. 📝" .
-                                "\n\nManter ele atualizado é muito importante! Para se inscrever ou atualizar, você precisa agendar um atendimento no CRAS mais próximo da sua casa.";
-                $callToAction = "\n\nPosso ajudar a encontrar uma unidade ou quer saber de outro programa?";
-                break;
-
-            // -- NOVAS INTENÇÕES --
             case 'morar_bem':
                 $responseText = "O programa *Morar Bem* é coordenado pela CODHAB, não pela SEDES. Ele busca facilitar o acesso à moradia. Para se inscrever ou obter informações, você deve procurar diretamente a CODHAB ou o site oficial deles.";
                 break;
-            case 'isencao_concurso':
-                $responseText = "Sim, pessoas inscritas no CadÚnico e com baixa renda podem ter direito à *isenção da taxa de inscrição em concursos públicos* federais e distritais. A solicitação é feita diretamente no site da banca organizadora do concurso, utilizando seu número do NIS.";
-                break;
-            case 'fomento_rural':
-                $responseText = "O programa de *Fomento às Atividades Produtivas Rurais* oferece um apoio financeiro para pequenos produtores rurais investirem em seus projetos. Para saber mais sobre os critérios, o ideal é procurar a Emater-DF ou uma unidade do CRAS.";
-                break;
-            case 'tarifa_social_agua':
-                $responseText = "A *Tarifa Social de Água e Esgoto* é um desconto na conta de água para famílias de baixa renda inscritas no CadÚnico. Para solicitar, você deve entrar em contato com a CAESB com seus documentos e o número do NIS em mãos.";
-                break;
-            case 'carteira_idoso':
-                $responseText = "A *Carteira da Pessoa Idosa* é um documento que permite a idosos de baixa renda ter acesso a viagens interestaduais gratuitas ou com desconto. Você pode solicitar a sua no CRAS mais próximo!";
-                break;
-            case 'previdencia_dona_de_casa':
-                $responseText = "A *contribuição previdenciária reduzida* para pessoas de família de baixa renda que se dedicam exclusivamente ao trabalho doméstico (donas de casa) é um direito! A alíquota é de 5% sobre o salário mínimo. A inscrição é feita junto ao INSS, e o CRAS pode te orientar sobre como proceder.";
-                break;
-            case 'id_jovem':
-                $responseText = "O *ID Jovem* é um documento gratuito para jovens de 15 a 29 anos de baixa renda, que garante benefícios como meia-entrada em eventos e vagas gratuitas ou com desconto em viagens. Você pode emitir o seu pelo aplicativo ID Jovem ou em um CRAS.";
-                break;
-            case 'vale_gas_nacional':
-                $responseText = "O *Auxílio Gás dos Brasileiros*, também conhecido como Vale-Gás Nacional, é um benefício do Governo Federal pago a cada dois meses. Ele é destinado a famílias inscritas no CadÚnico ou que recebem o BPC.";
-                break;
-            case 'auxilio_inclusao':
-                $responseText = "O *Auxílio-Inclusão* é um benefício para pessoas com deficiência que recebem o BPC e começam a trabalhar com carteira assinada. Ele é um incentivo para a inclusão no mercado de trabalho. Para mais detalhes, o ideal é procurar o INSS.";
-                break;
-            case 'pe_de_meia':
-                $responseText = "O *Pé-de-Meia* é um programa de incentivo financeiro para estudantes do ensino médio de escolas públicas. O objetivo é ajudar na permanência e conclusão dos estudos. A gestão do programa é feita pelo Ministério da Educação.";
-                break;
-            case 'dignidade_menstrual':
-                 $responseText = "O programa *Dignidade Menstrual* distribui absorventes gratuitos para pessoas em situação de vulnerabilidade. Você pode encontrar os pontos de distribuição nas Unidades Básicas de Saúde (UBS) e em alguns CRAS.";
-                 break;
-            case 'servico_convivencia':
-                $responseText = "O *Serviço de Convivência e Fortalecimento de Vínculos (SCFV)* oferece atividades em grupo (culturais, esportivas, etc.) para crianças, adolescentes, adultos e idosos, buscando fortalecer os laços familiares e comunitários. Procure o CRAS da sua região para saber quais grupos estão disponíveis!";
-                break;
-
+            
             case 'info_sedes':
             case 'informacoes_gerais':
             case 'saudacao_despedida':
                 $this->answerGeneralQuestion($conversation, $userInput, $respondWithAudio);
                 return;
 
+            case 'nao_entendido':
             default:
                 $this->askForClarification($conversation, $respondWithAudio);
                 return;
@@ -263,8 +218,73 @@ class StatefulChatbotService
 
         if ($responseText) {
             $this->sendResponse($conversation, $responseText . $callToAction, $respondWithAudio);
-            $this->updateState($conversation, null);
+            $this->updateState($conversation, null, []);
         }
+    }
+
+    /**
+     * Inicia o fluxo de pesquisa do restaurante.
+     */
+    private function initiateRestaurantSurveyFlow(WhatsAppConversation $conversation, string $restaurantName): void
+    {
+        Log::info('Iniciando pesquisa de satisfação via Flow Template', [
+            'conversation_id' => $conversation->id,
+            'restaurant' => $restaurantName
+        ]);
+
+        $this->whatsappService->setAccount($conversation->whatsappAccount);
+
+        $flowToken = '2011056406392867'; // O ideal é que isso venha de uma config
+
+        $bodyParameters = [
+            ['type' => 'text', 'text' => $restaurantName]
+        ];
+        
+        $response = $this->whatsappService->sendFlowTemplateMessage(
+            $conversation->contact->phone_number,
+            'pesquisa_rc_2025_07',
+            'en_US',
+            $flowToken,
+            $bodyParameters
+        );
+
+        if ($response && $response['success']) {
+            $this->saveOutboundMessage(
+                $conversation,
+                "Formulário de pesquisa para restaurante comunitário - $restaurantName enviado.",
+                $response['data'],
+                ['type' => 'template']
+            );
+        }
+
+        // --- CORREÇÃO APLICADA AQUI ---
+        // Agora, ao definir o estado da conversa, também salvamos o nome do restaurante
+        // no contexto. Isso garante que teremos a informação para o fallback.
+        $this->updateState($conversation, 'flow_sent', ['restaurant_name' => $restaurantName]);
+    }
+
+    /**
+     * Lida com a resposta do usuário à primeira pergunta da pesquisa.
+     */
+    private function handleSurveyAgeResponse(WhatsAppConversation $conversation, string $age, bool $respondWithAudio): void
+    {
+        $context = $conversation->chatbot_context ?? [];
+        $context['user_age'] = filter_var($age, FILTER_SANITIZE_NUMBER_INT);
+        
+        // Atualiza para o próximo estado da pesquisa, mas não envia a próxima pergunta.
+        $this->updateState($conversation, 'awaiting_survey_frequency', $context); 
+        
+        // --- ALTERAÇÃO APLICADA AQUI ---
+        // A mensagem de "frequência de uso" foi desabilitada comentando as linhas abaixo.
+        /*
+        $message = "Obrigado! Com que frequência você utiliza os serviços do restaurante?\n\n1. Diariamente\n2. Algumas vezes por semana\n3. Raramente";
+        $this->sendResponse($conversation, $message, $respondWithAudio);
+        */
+        
+        Log::info('Survey age received and processed. Next message disabled as requested.', [
+            'conversation_id' => $conversation->id,
+            'age_received' => $age
+        ]);
     }
     
     private function handleAppointmentConfirmation(WhatsAppConversation $conversation, string $userInput, bool $respondWithAudio): void
@@ -277,16 +297,15 @@ class StatefulChatbotService
             $message = "Tudo bem, o agendamento não foi confirmado. Se quiser tentar outra data ou horário, é só me pedir. 😉";
         }
         $this->sendResponse($conversation, $message, $respondWithAudio);
-        $this->updateState($conversation, null);
+        $this->updateState($conversation, null, []);
     }
 
-    // ... (demais métodos permanecem os mesmos)
     private function handlePiiDetected(WhatsAppConversation $conversation, ?string $piiType, bool $respondWithAudio): void
     {
         $typeName = match ($piiType) { 'cpf' => 'CPF', 'rg' => 'RG', 'cnh' => 'CNH', default => 'documento pessoal' };
         $message = "Para sua segurança, não posso tratar dados como {$typeName} por aqui. Por favor, dirija-se a uma unidade de atendimento do CRAS para prosseguir com sua solicitação.";
         $this->sendResponse($conversation, $message, $respondWithAudio);
-        $this->updateState($conversation, null);
+        $this->updateState($conversation, null, []);
     }
     
     private function initiateCrasLocationFlow(WhatsAppConversation $conversation, bool $respondWithAudio): void
@@ -294,13 +313,6 @@ class StatefulChatbotService
         $message = "Claro! Para agendamentos ou atualizações no CRAS, preciso saber onde você está. Por favor, me envie sua localização pelo anexo do WhatsApp ou digite seu CEP.";
         $this->sendResponse($conversation, $message, $respondWithAudio);
         $this->updateState($conversation, self::STATE_AWAITING_LOCATION);
-    }
-    
-    private function initiateBenefitConsultationFlow(WhatsAppConversation $conversation, bool $respondWithAudio): void
-    {
-        $message = "Entendi que você deseja consultar um benefício. Para isso, você precisará se dirigir a uma unidade do CRAS com seu CPF e documento com foto.";
-        $this->sendResponse($conversation, $message, $respondWithAudio);
-        $this->updateState($conversation, null);
     }
     
     private function answerGeneralQuestion(WhatsAppConversation $conversation, string $userInput, bool $respondWithAudio): void
@@ -311,14 +323,14 @@ class StatefulChatbotService
         } else {
             $this->askForClarification($conversation, $respondWithAudio);
         }
-        $this->updateState($conversation, null);
+        $this->updateState($conversation, null, []);
     }
 
     private function askForClarification(WhatsAppConversation $conversation, bool $respondWithAudio): void
     {
         $message = "Desculpe, não entendi muito bem. Você poderia me dizer de outra forma como posso te ajudar?";
         $this->sendResponse($conversation, $message, $respondWithAudio);
-        $this->updateState($conversation, null);
+        $this->updateState($conversation, null, []);
     }
     
     private function handleLocationInput(WhatsAppConversation $conversation, string $location, bool $respondWithAudio): void
@@ -360,6 +372,27 @@ class StatefulChatbotService
             $this->saveOutboundMessage($conversation, $contentToSave, $response['data'], $messageData);
         }
     }
+
+    private function sendTemplate(WhatsAppConversation $conversation, string $templateName, array $parameters, string $languageCode = 'pt_BR'): void
+    {
+        $this->whatsappService->setAccount($conversation->whatsappAccount);
+        
+        $response = $this->whatsappService->sendTemplateMessage(
+            $conversation->contact->phone_number,
+            $templateName,
+            $languageCode,
+            $parameters
+        );
+
+        if ($response && $response['success']) {
+            $messageData = [
+                'type' => 'template',
+                'template_name' => $templateName,
+                'template_parameters' => $parameters
+            ];
+            $this->saveOutboundMessage($conversation, "Template '{$templateName}' ({$languageCode}) enviado.", $response['data'], $messageData);
+        }
+    }
     
     private function saveOutboundMessage(WhatsAppConversation $conversation, ?string $content, array $apiResponse, array $messageData): void
     {
@@ -388,8 +421,19 @@ class StatefulChatbotService
         }
     }
 
-    public function updateState(WhatsAppConversation $conversation, ?string $newState): void
+    public function updateState(WhatsAppConversation $conversation, ?string $newState, array $contextData = []): void
     {
-        $conversation->update(['chatbot_state' => $newState]);
+        $currentContext = $conversation->chatbot_context ?? [];
+        $newContext = !empty($contextData) ? array_merge($currentContext, $contextData) : $currentContext;
+
+        $updatePayload = ['chatbot_state' => $newState];
+        
+        if (is_null($newState)) {
+            $updatePayload['chatbot_context'] = null;
+        } elseif (!empty($contextData)) {
+            $updatePayload['chatbot_context'] = $newContext;
+        }
+
+        $conversation->update($updatePayload);
     }
 }

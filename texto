@@ -2,7 +2,7 @@ texto
 
 curl -X POST https://whatsapp-business-system.test/api/whatsapp/webhook \
 -H "Content-Type: application/json" \
--d '{"object":"whatsapp_business_account","entry":[{"id":"294408263765996","changes":[{"value":{"messaging_product":"whatsapp","metadata":{"display_phone_number":"15556238061","phone_number_id":"614833181723737"},"contacts":[{"profile":{"name":"Gustavo Silva"},"wa_id":"556191235477"}],"messages":[{"context":{"from":"15556238061","id":"wamid.HBgMNTU2MTkxMjM1NDc3FQIAERgSMkE2NEM0MzQ4NDBDMEMyODYzAaaA=="},"from":"556191235477","id":"wamid.HBgMNTU2MTkxMjM1NDc3FQIAEhgUM0EyNzBBMkVFMEU2M0UwREQwNDIAaa","timestamp":"1719502656","type":"text","text":{"body":"okokokok"}}]},"field":"messages"}]}]}'
+-d '{"object":"whatsapp_business_account","entry":[{"id":"294408263765996","changes":[{"value":{"messaging_product":"whatsapp","metadata":{"display_phone_number":"15556238061","phone_number_id":"614833181723737"},"contacts":[{"profile":{"name":"Gustavo Silva"},"wa_id":"556191235477"}],"messages":[{"context":{"from":"15556238061","id":"wamid.HBgMNTU2MTkxMjM1NDc3FQIAERgSMkE2NEM0MzQ4NDBDMEMyODYzAaaA=="},"from":"556191235477","id":"wamid.HBgMNTU2MTkxMjM1NDc3FQIAEhgUM0EyNzBBMkVFMEU2M0UwREQwNDIAaa","timestamp":"1719502656","type":"text","text":{"body":"Riacho Fundo 2"}}]},"field":"messages"}]}]}'
 
 
 curl -X POST https://whatsapp-business-system.test/api/whatsapp/webhook \
