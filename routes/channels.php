@@ -32,3 +32,8 @@ Broadcast::channel('whatsapp.conversations.{conversationId}', function ($user, $
     // Permite se o usuário for um admin ou se a conversa estiver atribuída a ele
     return $user->hasRole('admin') || $user->id === $conversation->assigned_user_id;
 });
+
+// Qualquer usuário autenticado pode ouvir as atualizações do dashboard de pesquisas.
+Broadcast::channel('surveys.index', function ($user) {
+    return (int) $user->id > 0;
+});

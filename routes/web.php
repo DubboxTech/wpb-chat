@@ -11,6 +11,8 @@ use App\Http\Controllers\AiTrainingController;
 use App\Http\Controllers\SettingsController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\ContactController;
+use App\Http\Controllers\SurveyController; 
+
 /*
 |--------------------------------------------------------------------------
 | Web Routes
@@ -29,6 +31,8 @@ Route::middleware(['auth'])->group(function () {
     Route::get('/conversations', [ConversationController::class, 'index'])->name('conversations');
 
     Route::get('/campaigns', [CampaignController::class, 'index'])->name('campaigns');
+
+    Route::get('/surveys', [SurveyController::class, 'index'])->name('surveys.index');
 
     Route::get('/ai/training', function () {
         return Inertia::render('AI/Training');
